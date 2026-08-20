@@ -1271,9 +1271,11 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
   }) {
     _currentTermForm = termForm;
     bool _shouldAutoSaveOnClose = true;
+    bool isDictionaryOpen = false;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      enableDrag: false,
       // Keep sheet backgrounds transparent so child widgets render card styling.
       backgroundColor: const Color(0x00000000),
       transitionAnimationController: AnimationController(
@@ -1310,12 +1312,14 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
             child: StatefulBuilder(
               builder: (context, setModalState) {
                 return GestureDetector(
-                  onVerticalDragEnd: (details) {
-                    if (details.primaryVelocity != null &&
-                        details.primaryVelocity! > 500) {
-                      Navigator.of(context).pop();
-                    }
-                  },
+                  onVerticalDragEnd: isDictionaryOpen
+                      ? null
+                      : (details) {
+                          if (details.primaryVelocity != null &&
+                              details.primaryVelocity! > 500) {
+                            Navigator.of(context).pop();
+                          }
+                        },
                   child: TermFormWidget(
                     termForm: _currentTermForm ?? termForm,
                     sentence: sentence,
@@ -1363,6 +1367,7 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                       Navigator.of(context).pop();
                     },
                     onDictionaryToggle: (isOpen) {
+                      isDictionaryOpen = isOpen;
                       setModalState(() {});
                     },
                     onParentDoubleTap: (parent) async {
@@ -1420,9 +1425,11 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
     void Function(TermParent)? onParentUpdated,
   }) {
     bool _shouldAutoSaveOnClose = true;
+    bool isDictionaryOpen = false;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      enableDrag: false,
       backgroundColor: const Color(0x00000000),
       transitionAnimationController: AnimationController(
         duration: const Duration(milliseconds: 100),
@@ -1461,12 +1468,14 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                 var currentForm = termForm;
 
                 return GestureDetector(
-                  onVerticalDragEnd: (details) {
-                    if (details.primaryVelocity != null &&
-                        details.primaryVelocity! > 500) {
-                      Navigator.of(context).pop();
-                    }
-                  },
+                  onVerticalDragEnd: isDictionaryOpen
+                      ? null
+                      : (details) {
+                          if (details.primaryVelocity != null &&
+                              details.primaryVelocity! > 500) {
+                            Navigator.of(context).pop();
+                          }
+                        },
                   child: TermFormWidget(
                     termForm: currentForm,
                     sentence: sentence,
@@ -1511,6 +1520,7 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                       Navigator.of(context).pop();
                     },
                     onDictionaryToggle: (isOpen) {
+                      isDictionaryOpen = isOpen;
                       setModalState(() {});
                     },
                     onParentDoubleTap: (parent) async {
