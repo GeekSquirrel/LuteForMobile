@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:lute_for_mobile/shared/theme/theme_definitions.dart';
-import 'package:lute_for_mobile/features/settings/models/tts_settings.dart';
 import 'package:lute_for_mobile/features/settings/models/ai_settings.dart';
+import 'package:lute_for_mobile/features/settings/models/tts_settings.dart';
+import 'package:lute_for_mobile/shared/theme/theme_definitions.dart';
 
 @immutable
 class Settings {
   final String localUrl;
   final String serverUrl;
+  final Map<String, String> customHeaders;
   final String? aiServerUrl;
   final String? ttsServerUrl;
   final bool isUrlValid;
@@ -46,9 +47,21 @@ class Settings {
 
   static const String termuxUrl = 'http://127.0.0.1:5001';
 
+  static bool _mapsEqual(
+    Map<String, String> first,
+    Map<String, String> second,
+  ) {
+    if (first.length != second.length) return false;
+    for (final entry in first.entries) {
+      if (second[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
   const Settings({
     required this.localUrl,
     required this.serverUrl,
+    this.customHeaders = const {},
     this.aiServerUrl,
     this.ttsServerUrl,
     this.isUrlValid = true,
@@ -90,6 +103,7 @@ class Settings {
   Settings copyWith({
     String? localUrl,
     String? serverUrl,
+    Map<String, String>? customHeaders,
     String? aiServerUrl,
     String? ttsServerUrl,
     bool? isUrlValid,
@@ -132,6 +146,7 @@ class Settings {
     return Settings(
       localUrl: localUrl ?? this.localUrl,
       serverUrl: serverUrl ?? this.serverUrl,
+      customHeaders: customHeaders ?? this.customHeaders,
       aiServerUrl: aiServerUrl ?? this.aiServerUrl,
       ttsServerUrl: ttsServerUrl ?? this.ttsServerUrl,
       isUrlValid: isUrlValid ?? this.isUrlValid,
@@ -197,6 +212,7 @@ class Settings {
     return const Settings(
       localUrl: '',
       serverUrl: '',
+      customHeaders: const {},
       aiServerUrl: null,
       ttsServerUrl: null,
       isUrlValid: true,
@@ -242,6 +258,7 @@ class Settings {
     return other is Settings &&
         other.localUrl == localUrl &&
         other.serverUrl == serverUrl &&
+        _mapsEqual(other.customHeaders, customHeaders) &&
         other.aiServerUrl == aiServerUrl &&
         other.ttsServerUrl == ttsServerUrl &&
         other.isUrlValid == isUrlValid &&
@@ -286,6 +303,9 @@ class Settings {
   int get hashCode => Object.hashAll([
     localUrl,
     serverUrl,
+    Object.hashAll(
+      customHeaders.entries.map((entry) => Object.hash(entry.key, entry.value)),
+    ),
     aiServerUrl,
     ttsServerUrl,
     isUrlValid,

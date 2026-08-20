@@ -1,9 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:http/http.dart' as http;
 
 class BackupService {
+  static Map<String, String> _headers = const {};
+
+  static void setHeaders(Map<String, String> headers) {
+    _headers = Map<String, String>.unmodifiable(headers);
+  }
+
   static const Duration defaultTimeout = Duration(seconds: 30);
   // Snapshot taken from the Settings page served by 192.168.1.42:5001 on
   // 2026-03-13, then pinned to the Termux backup directory.
@@ -33,7 +40,10 @@ class BackupService {
     String serverUrl,
   ) async {
     try {
-      final response = await http.get(Uri.parse('$serverUrl/backup/index'));
+      final response = await http.get(
+        Uri.parse('$serverUrl/backup/index'),
+        headers: _headers,
+      );
 
       if (response.statusCode == 200) {
         final html = response.body;
@@ -148,6 +158,7 @@ class BackupService {
           .post(
             Uri.parse('$serverUrl/backup/do_backup'),
             body: {'type': 'manual'},
+            headers: _headers,
           )
           .timeout(timeout);
 
@@ -173,6 +184,7 @@ class BackupService {
     try {
       final response = await http.get(
         Uri.parse('$serverUrl/backup/download/$filename'),
+        headers: _headers,
       );
 
       if (response.statusCode == 200) {
@@ -201,6 +213,7 @@ class BackupService {
           .post(
             Uri.parse('$serverUrl/backup/do_restore'),
             body: {'filename': filename},
+            headers: _headers,
           )
           .timeout(timeout);
 
@@ -236,6 +249,7 @@ class BackupService {
         'POST',
         Uri.parse('$serverUrl/backup/upload'),
       );
+      request.headers.addAll(_headers);
       request.files.add(
         await http.MultipartFile.fromPath(
           'backup_file',
@@ -269,6 +283,7 @@ class BackupService {
           .post(
             Uri.parse('$serverUrl/backup/do_delete'),
             body: {'filename': filename},
+            headers: _headers,
           )
           .timeout(timeout);
 
@@ -293,7 +308,7 @@ class BackupService {
   }) async {
     try {
       final response = await http
-          .get(Uri.parse('$serverUrl/settings/index'))
+          .get(Uri.parse('$serverUrl/settings/index'), headers: _headers)
           .timeout(timeout);
 
       if (response.statusCode == 200) {
@@ -321,6 +336,7 @@ class BackupService {
       final encodedPath = Uri.encodeComponent(newPath);
       final response = await http.post(
         Uri.parse('$serverUrl/settings/set/backup_dir/$encodedPath'),
+        headers: _headers,
       );
 
       if (response.statusCode == 200) {
@@ -339,7 +355,7 @@ class BackupService {
   }) async {
     try {
       final response = await http
-          .get(Uri.parse('$serverUrl/settings/index'))
+          .get(Uri.parse('$serverUrl/settings/index'), headers: _headers)
           .timeout(timeout);
 
       if (response.statusCode == 200) {

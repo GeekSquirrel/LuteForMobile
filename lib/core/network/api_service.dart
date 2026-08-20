@@ -1,10 +1,12 @@
 import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:lute_for_mobile/core/services/backup_service.dart';
 import 'package:lute_for_mobile/shared/providers/server_status_provider.dart';
-import 'queued_dio_interceptor.dart';
+
 import 'api_request_queue.dart';
+import 'queued_dio_interceptor.dart';
 
 class ApiService {
   final Dio _dio;
@@ -13,20 +15,23 @@ class ApiService {
   static const String _defaultTermImageSearchParams =
       'q=[LUTE]&form=HDRSC2&first=1&tsc=ImageHoverTitle';
 
-  ApiService({required String baseUrl, Dio? dio})
-    : _dio =
-          dio ??
-          Dio(
-            BaseOptions(
-              baseUrl: baseUrl,
-              connectTimeout: const Duration(seconds: 10),
-              receiveTimeout: const Duration(seconds: 10),
-              sendTimeout: const Duration(seconds: 10),
-              headers: {'Content-Type': 'text/html'},
-              followRedirects: false,
-              validateStatus: (status) => status != null && status < 400,
-            ),
-          ) {
+  ApiService({
+    required String baseUrl,
+    Map<String, String> headers = const {},
+    Dio? dio,
+  }) : _dio =
+           dio ??
+           Dio(
+             BaseOptions(
+               baseUrl: baseUrl,
+               connectTimeout: const Duration(seconds: 10),
+               receiveTimeout: const Duration(seconds: 10),
+               sendTimeout: const Duration(seconds: 10),
+               headers: {'Content-Type': 'text/html', ...headers},
+               followRedirects: false,
+               validateStatus: (status) => status != null && status < 400,
+             ),
+           ) {
     _requestQueue.initialize(baseUrl, _dio);
     _dio.interceptors.add(QueuedDioInterceptor(_requestQueue));
     _addRetryInterceptor();

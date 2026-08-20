@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:dio/dio.dart';
 
 class ServerHealthService {
@@ -14,7 +15,10 @@ class ServerHealthService {
 
   static Future<bool>? _pendingCheck;
 
-  static Future<bool> isReachable(String url) async {
+  static Future<bool> isReachable(
+    String url, {
+    Map<String, String> headers = const {},
+  }) async {
     if (url.isEmpty) {
       print('ServerHealthService: URL is empty, returning false');
       return false;
@@ -31,7 +35,7 @@ class ServerHealthService {
       return _pendingCheck!;
     }
 
-    _pendingCheck = _performCheck(uri);
+    _pendingCheck = _performCheck(uri, headers);
     try {
       return await _pendingCheck!;
     } finally {
@@ -39,14 +43,20 @@ class ServerHealthService {
     }
   }
 
-  static Future<bool> _performCheck(Uri uri) async {
+  static Future<bool> _performCheck(
+    Uri uri,
+    Map<String, String> headers,
+  ) async {
     try {
       // Use /info endpoint for health check (designed for this purpose)
       final healthUri = uri.replace(path: '/info');
       print('ServerHealthService: Sending HEAD request to $healthUri');
 
       final startTime = DateTime.now();
-      final response = await _dio.headUri(healthUri);
+      final response = await _dio.headUri(
+        healthUri,
+        options: Options(headers: headers),
+      );
       final elapsed = DateTime.now().difference(startTime).inMilliseconds;
 
       print(

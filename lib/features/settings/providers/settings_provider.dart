@@ -3,15 +3,17 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/settings.dart';
+
+import '../../../core/cache/providers/cache_manager_provider.dart';
+import '../../../core/services/backup_service.dart';
+import '../../../core/services/server_health_service.dart';
+import '../../../core/services/termux_service.dart';
+import '../../../features/reader/providers/reader_provider.dart';
+import '../../../shared/providers/server_status_provider.dart';
 import '../../../shared/theme/theme_definitions.dart';
 import '../../../shared/theme/theme_presets.dart';
 import '../../../shared/theme/theme_serialization.dart';
-import '../../../core/cache/providers/cache_manager_provider.dart';
-import '../../../features/reader/providers/reader_provider.dart';
-import '../../../core/services/termux_service.dart';
-import '../../../core/services/server_health_service.dart';
-import '../../../shared/providers/server_status_provider.dart';
+import '../models/settings.dart';
 
 typedef DrawerSettingsBuilder =
     Widget Function(BuildContext context, WidgetRef ref);
@@ -26,6 +28,7 @@ class ViewDrawerSettings {
 
 class SettingsNotifier extends Notifier<Settings> {
   static const String _keyLocalUrl = 'local_url';
+  static const String _keyCustomHeaders = 'custom_headers';
   static const String _keyUseTermux = 'use_termux';
   static const String _keyTranslationProvider = 'translation_provider';
   static const String _keyShowTags = 'show_tags';
@@ -77,11 +80,15 @@ class SettingsNotifier extends Notifier<Settings> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final localUrl = prefs.getString(_keyLocalUrl) ?? '';
+    final customHeaders = _readCustomHeaders(
+      prefs.getString(_keyCustomHeaders),
+    );
     final useTermux = prefs.getBool(_keyUseTermux) ?? false;
     final serverUrl = useTermux ? Settings.termuxUrl : localUrl;
 
     state = Settings.defaultSettings().copyWith(
       localUrl: localUrl,
+      customHeaders: customHeaders,
       serverUrl: serverUrl,
       isUrlValid: _isValidUrl(serverUrl),
     );
@@ -199,6 +206,35 @@ class SettingsNotifier extends Notifier<Settings> {
     }
   }
 
+  Future<void> updateCustomHeaders(Map<String, String> headers) async {
+    final normalized = Map<String, String>.unmodifiable(headers);
+    BackupService.setHeaders(normalized);
+    state = state.copyWith(customHeaders: normalized);
+    final prefs = await SharedPreferences.getInstance();
+    if (normalized.isEmpty) {
+      await prefs.remove(_keyCustomHeaders);
+    } else {
+      await prefs.setString(_keyCustomHeaders, jsonEncode(normalized));
+    }
+  }
+
+  static Map<String, String> _readCustomHeaders(String? value) {
+    if (value == null || value.trim().isEmpty) return {};
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is Map) {
+        return Map<String, String>.fromEntries(
+          decoded.entries
+              .where((entry) => entry.key is String && entry.value is String)
+              .map(
+                (entry) => MapEntry(entry.key as String, entry.value as String),
+              ),
+        );
+      }
+    } catch (_) {}
+    return {};
+  }
+
   Future<void> setServerSelection(bool useTermux) async {
     final prefs = await SharedPreferences.getInstance();
     final previousServerUrl = state.serverUrl;
@@ -222,7 +258,10 @@ class SettingsNotifier extends Notifier<Settings> {
       await cacheManager.clearDictionaryPreferences();
     }
 
-    final isReachable = await ServerHealthService.isReachable(state.serverUrl);
+    final isReachable = await ServerHealthService.isReachable(
+      state.serverUrl,
+      headers: state.customHeaders,
+    );
     ServerStatusManager.setReachable(isReachable);
   }
 

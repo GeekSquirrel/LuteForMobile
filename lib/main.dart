@@ -1,18 +1,38 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_ce/hive.dart';
 import 'package:hive_ce_flutter/hive_ce_flutter.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lute_for_mobile/app.dart';
-import 'package:lute_for_mobile/core/providers/initial_providers.dart';
 import 'package:lute_for_mobile/core/network/api_service.dart';
+import 'package:lute_for_mobile/core/providers/initial_providers.dart';
+import 'package:lute_for_mobile/core/services/backup_service.dart';
 import 'package:lute_for_mobile/core/services/server_health_service.dart';
 import 'package:lute_for_mobile/core/services/termux_service.dart';
-import 'package:lute_for_mobile/shared/providers/server_status_provider.dart';
-import 'package:lute_for_mobile/hive_registrar.g.dart';
 import 'package:lute_for_mobile/features/settings/models/settings.dart';
+import 'package:lute_for_mobile/hive_registrar.g.dart';
+import 'package:lute_for_mobile/shared/providers/server_status_provider.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+Map<String, String> _loadCustomHeaders(SharedPreferences prefs) {
+  final value = prefs.getString('custom_headers');
+  if (value == null || value.trim().isEmpty) return {};
+  try {
+    final decoded = jsonDecode(value);
+    if (decoded is Map) {
+      return Map<String, String>.fromEntries(
+        decoded.entries
+            .where((entry) => entry.key is String && entry.value is String)
+            .map(
+              (entry) => MapEntry(entry.key as String, entry.value as String),
+            ),
+      );
+    }
+  } catch (_) {}
+  return {};
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +41,8 @@ void main() async {
   final localUrl = prefs.getString('local_url') ?? '';
   final useTermux = prefs.getBool('use_termux') ?? false;
   final serverUrl = useTermux ? Settings.termuxUrl : localUrl;
+  final customHeaders = _loadCustomHeaders(prefs);
+  BackupService.setHeaders(customHeaders);
 
   if (kIsWeb) {
     await Hive.initFlutter();
@@ -42,7 +64,10 @@ void main() async {
     print('main.dart: Android server check: $isRunning');
     ServerStatusManager.setReachable(isRunning);
   } else if (serverUrl.isNotEmpty) {
-    final isServerReachable = await ServerHealthService.isReachable(serverUrl);
+    final isServerReachable = await ServerHealthService.isReachable(
+      serverUrl,
+      headers: customHeaders,
+    );
     print('main.dart: Server health check result: $isServerReachable');
     ServerStatusManager.setReachable(isServerReachable);
   } else {
@@ -52,7 +77,7 @@ void main() async {
   ServerStatusManager.setInitialCheckComplete(true);
 
   if (serverUrl.isNotEmpty) {
-    final apiService = ApiService(baseUrl: serverUrl);
+    final apiService = ApiService(baseUrl: serverUrl, headers: customHeaders);
     apiService.triggerAutoBackup();
   }
 

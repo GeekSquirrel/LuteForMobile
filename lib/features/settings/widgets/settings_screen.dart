@@ -1,23 +1,26 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
-import '../../../core/logger/widget_logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../shared/widgets/app_bar_leading.dart';
-import '../providers/settings_provider.dart';
-import '../../books/providers/books_provider.dart';
-import '../../../shared/theme/theme_extensions.dart';
-import '../models/settings.dart';
-import '../../../shared/theme/theme_definitions.dart';
+
 import '../../../app.dart';
-import 'theme_selector_screen.dart';
-import 'tts_settings_section.dart';
+import '../../../core/logger/widget_logger.dart';
+import '../../../shared/theme/theme_definitions.dart';
+import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/app_bar_leading.dart';
+import '../../books/providers/books_provider.dart';
+import '../models/settings.dart';
+import '../providers/settings_provider.dart';
 import 'ai_settings_section.dart';
 import 'backup_restore_card.dart';
-import 'termux_screen.dart';
 import 'language_settings_card.dart';
+import 'termux_screen.dart';
+import 'theme_selector_screen.dart';
+import 'tts_settings_section.dart';
 
 class NumberField extends StatefulWidget {
   final String label;
@@ -110,6 +113,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   final _localUrlController = TextEditingController();
+  final _customHeadersController = TextEditingController();
   int _buildCount = 0;
   bool _isTesting = false;
   String? _connectionStatus;
@@ -122,8 +126,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     super.initState();
     SharedPreferences.getInstance().then((prefs) {
       final savedUrl = prefs.getString('local_url') ?? '';
+      final savedHeaders = prefs.getString('custom_headers') ?? '';
       if (mounted) {
         _localUrlController.text = savedUrl;
+        _customHeadersController.text = savedHeaders;
       }
     });
   }
@@ -131,6 +137,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void dispose() {
     _localUrlController.dispose();
+    _customHeadersController.dispose();
     super.dispose();
   }
 
@@ -144,11 +151,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     });
 
     final url = _localUrlController.text.trim();
+    final headers = _parseCustomHeaders();
+    if (headers == null) {
+      setState(() {
+        _connectionStatus = 'Custom headers must be a JSON object';
+        _isTesting = false;
+      });
+      return;
+    }
     try {
       final dio = Dio();
       final response = await dio.get(
         url,
         options: Options(
+          headers: headers,
           receiveTimeout: const Duration(seconds: 10),
           sendTimeout: const Duration(seconds: 10),
         ),
@@ -180,6 +196,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final newUrl = _localUrlController.text.trim();
+    final newHeaders = _parseCustomHeaders();
+    if (newHeaders == null) return;
 
     await _testConnection();
 
@@ -189,10 +207,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     final prefs = await SharedPreferences.getInstance();
     final oldUrl = prefs.getString('local_url') ?? '';
+    final oldHeaders = prefs.getString('custom_headers') ?? '';
 
-    if (oldUrl != newUrl) {
+    if (oldUrl != newUrl ||
+        oldHeaders != _customHeadersController.text.trim()) {
       await ref.read(settingsProvider.notifier).clearCurrentBook();
       await ref.read(settingsProvider.notifier).updateLocalUrl(newUrl);
+      await ref.read(settingsProvider.notifier).updateCustomHeaders(newHeaders);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -203,6 +224,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       RestartWidget.restartApp(context);
     } else {
       await ref.read(settingsProvider.notifier).updateLocalUrl(newUrl);
+      await ref.read(settingsProvider.notifier).updateCustomHeaders(newHeaders);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -306,6 +328,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         }
                         return null;
                       },
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _customHeadersController,
+                      minLines: 2,
+                      maxLines: 5,
+                      decoration: const InputDecoration(
+                        labelText: 'Custom HTTP headers (JSON)',
+                        hintText: '{"Authorization":"Basic ..."}',
+                        helperText:
+                            'Optional. Header names and values are sent with every server request.',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.multiline,
                     ),
                     const SizedBox(height: 24),
                     Row(
@@ -1228,6 +1264,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  Map<String, String>? _parseCustomHeaders() {
+    final text = _customHeadersController.text.trim();
+    if (text.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is! Map) return null;
+      final headers = <String, String>{};
+      for (final entry in decoded.entries) {
+        if (entry.key is! String ||
+            entry.value is! String ||
+            (entry.key as String).trim().isEmpty) {
+          return null;
+        }
+        headers[entry.key as String] = entry.value as String;
+      }
+      return headers;
+    } catch (_) {
+      return null;
+    }
   }
 
   Widget _buildSettingRow(String label, String value) {
