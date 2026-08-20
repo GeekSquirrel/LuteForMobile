@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : FlutterActivity() {
     private var termuxBridge: TermuxBridge? = null
+    private var androidAppBridge: AndroidAppBridge? = null
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var hasAutoLaunched = false
 
@@ -36,11 +37,15 @@ class MainActivity : FlutterActivity() {
         android.util.Log.d("MainActivity", ">>> configureFlutterEngine() <<<")
         termuxBridge = TermuxBridge(this)
         termuxBridge?.registerMethodChannel(flutterEngine)
+
+        androidAppBridge = AndroidAppBridge(this)
+        androidAppBridge?.registerMethodChannel(flutterEngine)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         termuxBridge?.dispose()
+        androidAppBridge?.dispose()
     }
 
     /**

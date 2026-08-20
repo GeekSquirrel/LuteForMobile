@@ -8,10 +8,13 @@ import '../models/sentence_translation.dart';
 import '../../settings/models/ai_settings.dart';
 import '../../settings/providers/ai_settings_provider.dart';
 import '../../../core/providers/ai_provider.dart';
+import '../../../core/providers/android_app_provider.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../core/network/dictionary_service.dart';
 import '../providers/sentence_tts_provider.dart';
 import '../providers/current_book_provider.dart';
+import 'android_app_launcher_view.dart';
+import 'dictionary_tab_reorder_dialog.dart';
 
 class SentenceTranslationWidget extends ConsumerStatefulWidget {
   final String sentence;
@@ -91,20 +94,13 @@ class _SentenceTranslationWidgetState
     }
   }
 
-  Future<void> _loadDictionaries() async {
+  Future<void> _loadDictionaries({bool preserveCurrentPage = false}) async {
     if (!mounted) return;
 
-    final dictionaries = await widget.dictionaryService
+    final rawDictionaries = await widget.dictionaryService
         .getSentenceDictionariesForLanguage(widget.languageId);
 
     if (!mounted) return;
-
-    final lastUsed = await widget.dictionaryService
-        .getLastUsedSentenceDictionary(widget.languageId);
-
-    if (!mounted) return;
-
-    int initialPage = 0;
 
     final aiSettings = ref.read(aiSettingsProvider);
     final aiConfig = aiSettings.promptConfigs[AIPromptType.sentenceTranslation];
@@ -117,7 +113,7 @@ class _SentenceTranslationWidgetState
         aiSettings.provider != AIProvider.none &&
         virtualDictConfig?.enabled == true;
 
-    final allDictionaries = List<DictionarySource>.from(dictionaries);
+    final allDictionaries = List<DictionarySource>.from(rawDictionaries);
     if (shouldAddAI) {
       final modelName =
           aiSettings.providerConfigs[aiSettings.provider]?.model ?? 'gpt-4o';
@@ -143,15 +139,49 @@ class _SentenceTranslationWidgetState
       );
     }
 
-    if (lastUsed != null && allDictionaries.isNotEmpty) {
-      final index = allDictionaries.indexWhere((d) => d.name == lastUsed);
-      if (index >= 0) {
-        initialPage = index;
+    final appService = ref.read(androidAppServiceProvider);
+    final config = ref.read(localAppTabConfigProvider);
+    final localAppSource = appService.isSupportedPlatform
+        ? DictionarySource(
+            name: config.tabTitle.isNotEmpty ? config.tabTitle : 'Apps',
+            urlTemplate: '',
+            isAndroidApp: true,
+          )
+        : null;
+
+    final savedOrder = await appService.getTabOrder(
+      widget.languageId,
+      isSentence: true,
+    );
+
+    final ordered = appService.applyTabOrder<DictionarySource>(
+      originalItems: allDictionaries,
+      getId: (d) => d.name,
+      savedOrder: savedOrder,
+      localAppItem: localAppSource,
+      includeLocalApp: config.enabled && appService.isSupportedPlatform,
+    );
+
+    int initialPage = _currentPage;
+    if (!preserveCurrentPage) {
+      final lastUsed = await widget.dictionaryService
+          .getLastUsedSentenceDictionary(widget.languageId);
+      if (lastUsed != null && ordered.isNotEmpty) {
+        final index = ordered.indexWhere((d) => d.name == lastUsed);
+        if (index >= 0) {
+          initialPage = index;
+        }
       }
     }
 
+    if (ordered.isNotEmpty) {
+      initialPage = initialPage.clamp(0, ordered.length - 1);
+    } else {
+      initialPage = 0;
+    }
+
     setState(() {
-      _dictionaries = allDictionaries;
+      _dictionaries = ordered;
       _currentPage = initialPage;
       _hasLoaded = true;
       _pageController.dispose();
@@ -162,6 +192,20 @@ class _SentenceTranslationWidgetState
       if (!mounted) return;
       _loadCurrentPageContent();
     });
+  }
+
+  void _openTabReorderDialog() {
+    final rawWebviewDicts =
+        _dictionaries.where((d) => !d.isAndroidApp).toList();
+    DictionaryTabReorderDialog.show(
+      context,
+      languageId: widget.languageId,
+      isSentence: true,
+      webviewDictionaries: rawWebviewDicts,
+      onOrderChanged: () {
+        _loadDictionaries(preserveCurrentPage: true);
+      },
+    );
   }
 
   void _loadCurrentPageContent() {
@@ -271,13 +315,15 @@ class _SentenceTranslationWidgetState
 
     if (_currentPage > 0 &&
         !_preloadedPages.contains(_currentPage - 1) &&
-        !_dictionaries[_currentPage - 1].isAI) {
+        !_dictionaries[_currentPage - 1].isAI &&
+        !_dictionaries[_currentPage - 1].isAndroidApp) {
       pagesToPreload.add(_currentPage - 1);
     }
 
     if (_currentPage < _dictionaries.length - 1 &&
         !_preloadedPages.contains(_currentPage + 1) &&
-        !_dictionaries[_currentPage + 1].isAI) {
+        !_dictionaries[_currentPage + 1].isAI &&
+        !_dictionaries[_currentPage + 1].isAndroidApp) {
       pagesToPreload.add(_currentPage + 1);
     }
 
@@ -441,14 +487,30 @@ class _SentenceTranslationWidgetState
             tooltip: 'Previous dictionary',
           ),
           Expanded(
-            child: Text(
-              currentDict.name,
-              style: Theme.of(
-                context,
-              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (currentDict.isAndroidApp) ...[
+                  Icon(
+                    Icons.phone_android,
+                    size: 16,
+                    color: context.m3Primary,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                Flexible(
+                  child: Text(
+                    currentDict.name,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
             ),
           ),
           IconButton(
@@ -464,6 +526,13 @@ class _SentenceTranslationWidgetState
                   }
                 : null,
             tooltip: 'Next dictionary',
+          ),
+          IconButton(
+            icon: const Icon(Icons.sort, size: 20),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+            onPressed: _openTabReorderDialog,
+            tooltip: 'Reorder tabs',
           ),
           IconButton(
             icon: const Icon(Icons.settings, size: 20),
@@ -631,7 +700,16 @@ class _SentenceTranslationWidgetState
       },
       itemCount: _dictionaries.length,
       itemBuilder: (context, index) {
-        return _buildWebViewPage(context, _dictionaries[index], index);
+        final dict = _dictionaries[index];
+        if (dict.isAndroidApp) {
+          return AndroidAppLauncherView(
+            text: widget.sentence,
+            isSentence: true,
+            isActive: _currentPage == index,
+            onOpenTabReorder: _openTabReorderDialog,
+          );
+        }
+        return _buildWebViewPage(context, dict, index);
       },
     );
   }

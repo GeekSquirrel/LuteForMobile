@@ -4,6 +4,7 @@ import '../../../shared/models/language.dart';
 import '../../../shared/models/language_card_settings.dart';
 import '../../../shared/providers/network_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../reader/widgets/dictionary_tab_reorder_dialog.dart';
 
 class LanguageSettingsCard extends ConsumerStatefulWidget {
   const LanguageSettingsCard({super.key});
@@ -410,6 +411,28 @@ class _LanguageSettingsCardState extends ConsumerState<LanguageSettingsCard> {
     });
   }
 
+  Future<void> _openTabReorderDialog(LanguageCardSettings settings) async {
+    final dictService = ref.read(dictionaryServiceProvider);
+    final termDicts =
+        await dictService.getDictionariesForLanguage(settings.languageId);
+    if (!mounted) return;
+
+    DictionaryTabReorderDialog.show(
+      context,
+      languageId: settings.languageId,
+      isSentence: false,
+      webviewDictionaries: termDicts,
+      onOrderChanged: () {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tab order updated locally'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _showNewLanguageDialog() async {
     String? selected = _selectedPredefinedLanguage;
 
@@ -711,10 +734,21 @@ class _LanguageSettingsCardState extends ConsumerState<LanguageSettingsCard> {
                 'Dictionaries',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
-              TextButton.icon(
-                onPressed: _addDictionary,
-                icon: const Icon(Icons.add),
-                label: const Text('Add'),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!_isCreateMode)
+                    TextButton.icon(
+                      onPressed: () => _openTabReorderDialog(settings),
+                      icon: const Icon(Icons.sort, size: 18),
+                      label: const Text('Tab Order'),
+                    ),
+                  TextButton.icon(
+                    onPressed: _addDictionary,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add'),
+                  ),
+                ],
               ),
             ],
           ),

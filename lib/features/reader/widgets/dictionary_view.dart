@@ -5,11 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/dictionary_service.dart';
+import '../../../core/providers/android_app_provider.dart';
 import '../../settings/models/ai_settings.dart';
 import '../../settings/providers/ai_settings_provider.dart';
 import '../../../core/providers/ai_provider.dart';
 import '../providers/current_book_provider.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import 'android_app_launcher_view.dart';
+import 'dictionary_tab_reorder_dialog.dart';
 
 enum DictionaryTabType { dictionary, ai }
 
@@ -44,6 +47,7 @@ class DictionaryView extends ConsumerStatefulWidget {
 class _DictionaryViewState extends ConsumerState<DictionaryView> {
   late PageController _pageController;
   int _currentPage = 0;
+  List<DictionarySource> _orderedDictionaries = [];
   final Map<int, InAppWebViewController> _webviewControllers = {};
   bool _hasLoaded = false;
   DictionaryTabType _currentTab = DictionaryTabType.dictionary;
@@ -67,34 +71,92 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
   }
 
   @override
+  void didUpdateWidget(DictionaryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.languageId != widget.languageId ||
+        !listEquals(oldWidget.dictionaries, widget.dictionaries)) {
+      _loadOrderedDictionaries(preserveCurrentPage: false);
+    }
+  }
+
+  @override
   void dispose() {
     _pageController.dispose();
     super.dispose();
   }
 
   Future<void> _loadInitialPage() async {
+    await _loadOrderedDictionaries(preserveCurrentPage: false);
+  }
+
+  Future<void> _loadOrderedDictionaries({
+    bool preserveCurrentPage = false,
+  }) async {
     if (!mounted) return;
 
-    final lastUsed = await widget.dictionaryService.getLastUsedDictionary(
+    final appService = ref.read(androidAppServiceProvider);
+    final config = ref.read(localAppTabConfigProvider);
+    final savedOrder = await appService.getTabOrder(
       widget.languageId,
+      isSentence: false,
     );
 
-    if (!mounted) return;
+    final localAppSource = appService.isSupportedPlatform
+        ? DictionarySource(
+            name: config.tabTitle.isNotEmpty ? config.tabTitle : 'Apps',
+            urlTemplate: '',
+            isAndroidApp: true,
+          )
+        : null;
 
-    if (lastUsed != null && widget.dictionaries.isNotEmpty) {
-      final index = widget.dictionaries.indexWhere((d) => d.name == lastUsed);
-      if (index >= 0) {
-        setState(() {
-          _currentPage = index;
-        });
-        _pageController.dispose();
-        _pageController = PageController(initialPage: index);
+    final ordered = appService.applyTabOrder<DictionarySource>(
+      originalItems: widget.dictionaries,
+      getId: (d) => d.name,
+      savedOrder: savedOrder,
+      localAppItem: localAppSource,
+      includeLocalApp: config.enabled && appService.isSupportedPlatform,
+    );
+
+    int targetPage = _currentPage;
+    if (!preserveCurrentPage) {
+      final lastUsed = await widget.dictionaryService.getLastUsedDictionary(
+        widget.languageId,
+      );
+      if (lastUsed != null && ordered.isNotEmpty) {
+        final index = ordered.indexWhere((d) => d.name == lastUsed);
+        if (index >= 0) {
+          targetPage = index;
+        }
       }
     }
 
-    setState(() {
-      _hasLoaded = true;
-    });
+    if (ordered.isNotEmpty) {
+      targetPage = targetPage.clamp(0, ordered.length - 1);
+    } else {
+      targetPage = 0;
+    }
+
+    if (mounted) {
+      setState(() {
+        _orderedDictionaries = ordered;
+        _currentPage = targetPage;
+        _hasLoaded = true;
+      });
+      _pageController.dispose();
+      _pageController = PageController(initialPage: targetPage);
+    }
+  }
+
+  void _openTabReorderDialog() {
+    DictionaryTabReorderDialog.show(
+      context,
+      languageId: widget.languageId,
+      isSentence: false,
+      webviewDictionaries: widget.dictionaries,
+      onOrderChanged: () {
+        _loadOrderedDictionaries(preserveCurrentPage: true);
+      },
+    );
   }
 
   bool _shouldShowAITab() {
@@ -291,7 +353,7 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
   }
 
   Future<void> _preloadAdjacentPages() async {
-    if (_isPreloading || !mounted || widget.dictionaries.isEmpty) {
+    if (_isPreloading || !mounted || _orderedDictionaries.isEmpty) {
       return;
     }
 
@@ -305,12 +367,16 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
 
     final pagesToPreload = <int>[];
 
-    if (_currentPage > 0 && !_preloadedPages.contains(_currentPage - 1)) {
+    if (_currentPage > 0 &&
+        !_preloadedPages.contains(_currentPage - 1) &&
+        _currentPage - 1 < _orderedDictionaries.length &&
+        !_orderedDictionaries[_currentPage - 1].isAndroidApp) {
       pagesToPreload.add(_currentPage - 1);
     }
 
-    if (_currentPage < widget.dictionaries.length - 1 &&
-        !_preloadedPages.contains(_currentPage + 1)) {
+    if (_currentPage < _orderedDictionaries.length - 1 &&
+        !_preloadedPages.contains(_currentPage + 1) &&
+        !_orderedDictionaries[_currentPage + 1].isAndroidApp) {
       pagesToPreload.add(_currentPage + 1);
     }
 
@@ -344,7 +410,7 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
     final shouldShowAITab = _shouldShowAITab();
     final shouldShowVirtualDict = _shouldShowVirtualDictionary();
 
-    if (widget.dictionaries.isEmpty && !shouldShowAITab) {
+    if (_orderedDictionaries.isEmpty && !shouldShowAITab) {
       return _buildEmptyState(context);
     }
 
@@ -497,7 +563,7 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
   Widget _buildTabContent(BuildContext context, bool shouldShowVirtualDict) {
     switch (_currentTab) {
       case DictionaryTabType.dictionary:
-        if (widget.dictionaries.isEmpty) {
+        if (_orderedDictionaries.isEmpty) {
           return _buildNoDictionariesState(context);
         }
         return Column(
@@ -776,9 +842,9 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
   }
 
   Widget _buildNarrowHeader(BuildContext context) {
-    if (widget.dictionaries.isEmpty) return const SizedBox.shrink();
+    if (_orderedDictionaries.isEmpty) return const SizedBox.shrink();
 
-    final currentDict = widget.dictionaries[_currentPage];
+    final currentDict = _orderedDictionaries[_currentPage];
     return Container(
       height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -807,23 +873,40 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
                     );
                   }
                 : null,
+            tooltip: 'Previous dictionary',
           ),
           Expanded(
-            child: Text(
-              currentDict.name,
-              style: Theme.of(
-                context,
-              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (currentDict.isAndroidApp) ...[
+                  Icon(
+                    Icons.phone_android,
+                    size: 16,
+                    color: context.m3Primary,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                Flexible(
+                  child: Text(
+                    currentDict.name,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
             ),
           ),
           IconButton(
             icon: const Icon(Icons.chevron_right, size: 20),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-            onPressed: _currentPage < widget.dictionaries.length - 1
+            onPressed: _currentPage < _orderedDictionaries.length - 1
                 ? () {
                     _pageController.nextPage(
                       duration: const Duration(milliseconds: 200),
@@ -831,6 +914,14 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
                     );
                   }
                 : null,
+            tooltip: 'Next dictionary',
+          ),
+          IconButton(
+            icon: const Icon(Icons.sort, size: 20),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+            onPressed: _openTabReorderDialog,
+            tooltip: 'Reorder tabs',
           ),
         ],
       ),
@@ -838,7 +929,7 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
   }
 
   Widget _buildSwipeableContent(BuildContext context) {
-    if (widget.dictionaries.isEmpty) return const SizedBox.shrink();
+    if (_orderedDictionaries.isEmpty) return const SizedBox.shrink();
 
     return PageView.builder(
       controller: _pageController,
@@ -850,12 +941,21 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
         });
         await widget.dictionaryService.rememberLastUsedDictionary(
           widget.languageId,
-          widget.dictionaries[index].name,
+          _orderedDictionaries[index].name,
         );
       },
-      itemCount: widget.dictionaries.length,
+      itemCount: _orderedDictionaries.length,
       itemBuilder: (context, index) {
-        return _buildWebViewPage(context, widget.dictionaries[index], index);
+        final dict = _orderedDictionaries[index];
+        if (dict.isAndroidApp) {
+          return AndroidAppLauncherView(
+            text: widget.term,
+            isSentence: false,
+            isActive: _currentPage == index,
+            onOpenTabReorder: _openTabReorderDialog,
+          );
+        }
+        return _buildWebViewPage(context, dict, index);
       },
     );
   }

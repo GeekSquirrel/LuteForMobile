@@ -10,12 +10,14 @@ class DictionarySource {
   final String urlTemplate;
   final bool isAI;
   final AIType? aiType;
+  final bool isAndroidApp;
 
   const DictionarySource({
     required this.name,
     required this.urlTemplate,
     this.isAI = false,
     this.aiType,
+    this.isAndroidApp = false,
   });
 
   factory DictionarySource.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class DictionarySource {
               orElse: () => AIType.translation,
             )
           : null,
+      isAndroidApp: json['isAndroidApp'] as bool? ?? false,
     );
   }
 
@@ -38,6 +41,7 @@ class DictionarySource {
       'urlTemplate': urlTemplate,
       'isAI': isAI,
       'aiType': aiType?.toString(),
+      'isAndroidApp': isAndroidApp,
     };
   }
 }
