@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'term_tooltip.dart';
 
 class SearchResultTerm {
@@ -32,6 +33,7 @@ class SearchResultTerm {
   String get statusString => status?.toString() ?? '';
 }
 
+@immutable
 class TermForm {
   final String term;
   final String? translation;
@@ -47,7 +49,7 @@ class TermForm {
   final List<TermParent> parents;
   final bool? syncStatus;
 
-  TermForm({
+  const TermForm({
     required this.term,
     this.translation,
     this.termId,
@@ -123,6 +125,41 @@ class TermForm {
 
     return data;
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TermForm &&
+          runtimeType == other.runtimeType &&
+          term == other.term &&
+          translation == other.translation &&
+          termId == other.termId &&
+          languageId == other.languageId &&
+          status == other.status &&
+          listEquals(tags, other.tags) &&
+          romanization == other.romanization &&
+          imageUrl == other.imageUrl &&
+          imageFilename == other.imageFilename &&
+          showRomanization == other.showRomanization &&
+          listEquals(dictionaries, other.dictionaries) &&
+          listEquals(parents, other.parents) &&
+          syncStatus == other.syncStatus;
+
+  @override
+  int get hashCode =>
+      term.hashCode ^
+      translation.hashCode ^
+      termId.hashCode ^
+      languageId.hashCode ^
+      status.hashCode ^
+      tags.hashCode ^
+      romanization.hashCode ^
+      imageUrl.hashCode ^
+      imageFilename.hashCode ^
+      showRomanization.hashCode ^
+      dictionaries.hashCode ^
+      parents.hashCode ^
+      syncStatus.hashCode;
 }
 
 class TermImageUploadResult {

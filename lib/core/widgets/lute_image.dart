@@ -151,6 +151,7 @@ class LuteImage extends ConsumerWidget {
           width: width,
           height: height,
           fit: fit,
+          gaplessPlayback: true,
           errorBuilder: (context, error, stackTrace) =>
               errorWidget ?? _buildDefaultPlaceholder(context),
         );

@@ -4,6 +4,7 @@ import '../models/term.dart';
 import '../../../shared/providers/network_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../reader/models/term_form.dart';
+import '../../reader/models/term_tooltip.dart';
 import '../../reader/widgets/term_form.dart' show TermFormWidget;
 
 class TermEditDialogWrapper extends ConsumerStatefulWidget {
@@ -199,6 +200,7 @@ class _TermEditDialogWrapperState extends ConsumerState<TermEditDialogWrapper> {
                   }
                 },
                 onCancel: () => Navigator.pop(context),
+                onParentDoubleTap: (parent) => _showParentTermForm(parent),
                 contentService: ref.read(contentServiceProvider),
                 dictionaryService: ref.read(dictionaryServiceProvider),
               ),
@@ -207,5 +209,100 @@ class _TermEditDialogWrapperState extends ConsumerState<TermEditDialogWrapper> {
         ],
       ),
     );
+  }
+
+  Future<void> _showParentTermForm(TermParent parent) async {
+    try {
+      final contentService = ref.read(contentServiceProvider);
+      TermForm? parentTermForm;
+      if (parent.id != null) {
+        parentTermForm = await contentService.getTermFormById(parent.id!);
+      } else if (_termForm != null) {
+        parentTermForm =
+            await contentService.getTermForm(_termForm!.languageId, parent.term);
+      }
+      if (parentTermForm != null && mounted) {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          enableDrag: false,
+          backgroundColor: const Color(0x00000000),
+          builder: (bottomSheetContext) {
+            var currentForm = parentTermForm!;
+            return StatefulBuilder(
+              builder: (context, setModalState) {
+                return TermFormWidget(
+                  termForm: currentForm,
+                  onUpdate: (updatedForm) {
+                    currentForm = updatedForm;
+                    setModalState(() {});
+                  },
+                  onSave: (updatedForm) async {
+                    try {
+                      if (updatedForm.termId != null) {
+                        await contentService.editTerm(
+                          updatedForm.termId!,
+                          updatedForm.toFormData(),
+                        );
+                      } else {
+                        await contentService.saveTermForm(
+                          updatedForm.languageId,
+                          updatedForm.term,
+                          updatedForm.toFormData(),
+                        );
+                      }
+                      if (mounted) {
+                        final updatedParent = TermParent(
+                          id: updatedForm.termId,
+                          term: updatedForm.term,
+                          translation: updatedForm.translation,
+                          status: int.tryParse(updatedForm.status),
+                          syncStatus: updatedForm.syncStatus,
+                        );
+                        final updatedParents =
+                            (_termForm?.parents ?? []).map((p) {
+                          final matchById = updatedParent.id != null &&
+                              p.id != null &&
+                              p.id == updatedParent.id;
+                          final matchByTerm = p.term.trim().toLowerCase() ==
+                              updatedParent.term.trim().toLowerCase();
+                          if (matchById || matchByTerm) {
+                            return updatedParent;
+                          }
+                          return p;
+                        }).toList();
+                        setState(() {
+                          _termForm =
+                              _termForm?.copyWith(parents: updatedParents);
+                        });
+                        Navigator.pop(bottomSheetContext);
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content:
+                                Text('Failed to save parent term: $e'),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  onCancel: () => Navigator.pop(bottomSheetContext),
+                  contentService: ref.read(contentServiceProvider),
+                  dictionaryService: ref.read(dictionaryServiceProvider),
+                );
+              },
+            );
+          },
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load parent term: $e')),
+        );
+      }
+    }
   }
 }

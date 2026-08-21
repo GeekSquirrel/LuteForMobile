@@ -1603,31 +1603,40 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
                       setModalState(() {});
                     },
                     onParentDoubleTap: (parent) async {
+                      final current = _currentTermForm ?? termForm;
+                      TermForm? parentTermForm;
                       if (parent.id != null) {
-                        final parentTermForm = await ref
+                        parentTermForm = await ref
                             .read(readerProvider.notifier)
                             .fetchTermFormById(parent.id!);
-                        if (parentTermForm != null && mounted) {
-                          _showParentTermForm(
-                            parentTermForm,
-                            sentence: sentence,
-                            onParentUpdated: (updatedParent) {
-                              setState(() {
-                                _currentTermForm = _currentTermForm?.copyWith(
-                                  parents: (_currentTermForm?.parents ?? [])
-                                      .map(
-                                        (existingParent) =>
-                                            existingParent.id ==
-                                                updatedParent.id
-                                            ? updatedParent
-                                            : existingParent,
-                                      )
-                                      .toList(),
-                                );
-                              });
-                            },
-                          );
-                        }
+                      } else {
+                        parentTermForm = await ref
+                            .read(readerProvider.notifier)
+                            .fetchTermForm(current.languageId, parent.term);
+                      }
+                      if (parentTermForm != null && mounted) {
+                        _showParentTermForm(
+                          parentTermForm,
+                          sentence: sentence,
+                          onParentUpdated: (updatedParent) {
+                            final latest = _currentTermForm ?? termForm;
+                            final updatedParents = latest.parents.map((existingParent) {
+                              final matchById = updatedParent.id != null &&
+                                  existingParent.id != null &&
+                                  existingParent.id == updatedParent.id;
+                              final matchByTerm = existingParent.term.trim().toLowerCase() ==
+                                  updatedParent.term.trim().toLowerCase();
+                              if (matchById || matchByTerm) {
+                                return updatedParent;
+                              }
+                              return existingParent;
+                            }).toList();
+                            setState(() {
+                              _currentTermForm = latest.copyWith(parents: updatedParents);
+                            });
+                            setModalState(() {});
+                          },
+                        );
                       }
                     },
                     onStatus99Changed: (langId) async {
@@ -1654,6 +1663,7 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
   }) {
     _isDictionaryOpen = false;
     bool _shouldAutoSaveOnClose = true;
+    var currentForm = termForm;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1672,7 +1682,7 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
             canPop: !_isDictionaryOpen,
             onPopInvoked: (didPop) async {
               if (didPop && settings.autoSave && _shouldAutoSaveOnClose) {
-                final updatedForm = termForm;
+                final updatedForm = currentForm;
                 final success = await ref
                     .read(readerProvider.notifier)
                     .saveTerm(updatedForm);
@@ -1703,7 +1713,6 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
             },
             child: StatefulBuilder(
               builder: (context, setModalState) {
-                var currentForm = termForm;
                 return GestureDetector(
                   onVerticalDragEnd: _isDictionaryOpen
                       ? null
@@ -1728,6 +1737,7 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
                       setModalState(() {});
                     },
                     onSave: (updatedForm) async {
+                      currentForm = updatedForm;
                       final success = await ref
                           .read(readerProvider.notifier)
                           .saveTerm(updatedForm);
@@ -1793,29 +1803,36 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
                       setModalState(() {});
                     },
                     onParentDoubleTap: (parent) async {
+                      TermForm? parentTermForm;
                       if (parent.id != null) {
-                        final parentTermForm = await ref
+                        parentTermForm = await ref
                             .read(readerProvider.notifier)
                             .fetchTermFormById(parent.id!);
-                        if (parentTermForm != null && mounted) {
-                          _showParentTermForm(
-                            parentTermForm,
-                            sentence: sentence,
-                            onParentUpdated: (updatedParent) {
-                              currentForm = currentForm.copyWith(
-                                parents: currentForm.parents
-                                    .map(
-                                      (existingParent) =>
-                                          existingParent.id == updatedParent.id
-                                          ? updatedParent
-                                          : existingParent,
-                                    )
-                                    .toList(),
-                              );
-                              setModalState(() {});
-                            },
-                          );
-                        }
+                      } else {
+                        parentTermForm = await ref
+                            .read(readerProvider.notifier)
+                            .fetchTermForm(currentForm.languageId, parent.term);
+                      }
+                      if (parentTermForm != null && mounted) {
+                        _showParentTermForm(
+                          parentTermForm,
+                          sentence: sentence,
+                          onParentUpdated: (updatedParent) {
+                            final updatedParents = currentForm.parents.map((existingParent) {
+                              final matchById = updatedParent.id != null &&
+                                  existingParent.id != null &&
+                                  existingParent.id == updatedParent.id;
+                              final matchByTerm = existingParent.term.trim().toLowerCase() ==
+                                  updatedParent.term.trim().toLowerCase();
+                              if (matchById || matchByTerm) {
+                                return updatedParent;
+                              }
+                              return existingParent;
+                            }).toList();
+                            currentForm = currentForm.copyWith(parents: updatedParents);
+                            setModalState(() {});
+                          },
+                        );
                       }
                     },
                     onStatus99Changed: (langId) async {

@@ -1,4 +1,16 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+
+final Map<String, Uint8List> _iconBytesCache = {};
+
+/// Cached decoding of base64 app icons to preserve identical Uint8List references
+/// across widget rebuilds and prevent image reloading/flicker in Flutter.
+Uint8List getOrDecodeAppIconBytes(String base64Str) {
+  return _iconBytesCache.putIfAbsent(
+    base64Str,
+    () => base64Decode(base64Str),
+  );
+}
 
 @immutable
 class AndroidAppInfo {
@@ -17,6 +29,11 @@ class AndroidAppInfo {
   });
 
   String get id => '$packageName/$activityName';
+
+  Uint8List? get iconBytes {
+    if (iconBase64 == null || iconBase64!.isEmpty) return null;
+    return getOrDecodeAppIconBytes(iconBase64!);
+  }
 
   factory AndroidAppInfo.fromJson(Map<String, dynamic> json) {
     return AndroidAppInfo(

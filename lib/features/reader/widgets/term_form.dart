@@ -436,6 +436,7 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
                     if (shouldShowLocalApps) ...[
                       const SizedBox(height: 12),
                       AndroidAppLauncherView(
+                        key: ValueKey('term_launcher_${widget.termForm.term}'),
                         text: widget.termForm.term,
                         isSentence: false,
                         isInline: true,
@@ -1623,6 +1624,11 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
 
     return GestureDetector(
       onLongPress: () => _showDeleteParentConfirmation(context, parent),
+      onTap: () {
+        if (widget.onParentDoubleTap != null) {
+          widget.onParentDoubleTap!(parent);
+        }
+      },
       onDoubleTap: () {
         if (widget.onParentDoubleTap != null) {
           widget.onParentDoubleTap!(parent);

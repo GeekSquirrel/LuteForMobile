@@ -710,7 +710,7 @@ class _AndroidAppLauncherViewState
   Widget _buildInlineAppIcon(String? iconBase64) {
     if (iconBase64 != null && iconBase64.isNotEmpty) {
       try {
-        final bytes = base64Decode(iconBase64);
+        final bytes = getOrDecodeAppIconBytes(iconBase64);
         return ClipRRect(
           borderRadius: BorderRadius.circular(6),
           child: Image.memory(
@@ -718,6 +718,8 @@ class _AndroidAppLauncherViewState
             width: 32,
             height: 32,
             fit: BoxFit.cover,
+            gaplessPlayback: true,
+            excludeFromSemantics: true,
             errorBuilder: (context, error, stackTrace) =>
                 _buildInlineFallbackIcon(),
           ),
@@ -732,7 +734,7 @@ class _AndroidAppLauncherViewState
   Widget _buildSmallAppIcon(String? iconBase64, {double size = 20}) {
     if (iconBase64 != null && iconBase64.isNotEmpty) {
       try {
-        final bytes = base64Decode(iconBase64);
+        final bytes = getOrDecodeAppIconBytes(iconBase64);
         return ClipRRect(
           borderRadius: BorderRadius.circular(4),
           child: Image.memory(
@@ -740,6 +742,8 @@ class _AndroidAppLauncherViewState
             width: size,
             height: size,
             fit: BoxFit.cover,
+            gaplessPlayback: true,
+            excludeFromSemantics: true,
             errorBuilder: (context, error, stackTrace) =>
                 Icon(Icons.widgets, size: size, color: context.m3Primary),
           ),
@@ -1142,7 +1146,7 @@ class _AndroidAppLauncherViewState
   Widget _buildAppIcon(String? iconBase64) {
     if (iconBase64 != null && iconBase64.isNotEmpty) {
       try {
-        final Uint8List bytes = base64Decode(iconBase64);
+        final Uint8List bytes = getOrDecodeAppIconBytes(iconBase64);
         return ClipRRect(
           borderRadius: BorderRadius.circular(7),
           child: Image.memory(
@@ -1150,6 +1154,8 @@ class _AndroidAppLauncherViewState
             width: 36,
             height: 36,
             fit: BoxFit.cover,
+            gaplessPlayback: true,
+            excludeFromSemantics: true,
             errorBuilder: (context, error, stackTrace) =>
                 _buildFallbackIcon(),
           ),

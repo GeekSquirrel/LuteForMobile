@@ -1371,31 +1371,40 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                       setModalState(() {});
                     },
                     onParentDoubleTap: (parent) async {
+                      final current = _currentTermForm ?? termForm;
+                      TermForm? parentTermForm;
                       if (parent.id != null) {
-                        final parentTermForm = await ref
+                        parentTermForm = await ref
                             .read(readerProvider.notifier)
                             .fetchTermFormById(parent.id!);
-                        if (parentTermForm != null && mounted) {
-                          _showParentTermForm(
-                            parentTermForm,
-                            sentence: sentence,
-                            onParentUpdated: (updatedParent) {
-                              setState(() {
-                                _currentTermForm = _currentTermForm?.copyWith(
-                                  parents: (_currentTermForm?.parents ?? [])
-                                      .map(
-                                        (existingParent) =>
-                                            existingParent.id ==
-                                                updatedParent.id
-                                            ? updatedParent
-                                            : existingParent,
-                                      )
-                                      .toList(),
-                                );
-                              });
-                            },
-                          );
-                        }
+                      } else {
+                        parentTermForm = await ref
+                            .read(readerProvider.notifier)
+                            .fetchTermForm(current.languageId, parent.term);
+                      }
+                      if (parentTermForm != null && mounted) {
+                        _showParentTermForm(
+                          parentTermForm,
+                          sentence: sentence,
+                          onParentUpdated: (updatedParent) {
+                            final latest = _currentTermForm ?? termForm;
+                            final updatedParents = latest.parents.map((existingParent) {
+                              final matchById = updatedParent.id != null &&
+                                  existingParent.id != null &&
+                                  existingParent.id == updatedParent.id;
+                              final matchByTerm = existingParent.term.trim().toLowerCase() ==
+                                  updatedParent.term.trim().toLowerCase();
+                              if (matchById || matchByTerm) {
+                                return updatedParent;
+                              }
+                              return existingParent;
+                            }).toList();
+                            setState(() {
+                              _currentTermForm = latest.copyWith(parents: updatedParents);
+                            });
+                            setModalState(() {});
+                          },
+                        );
                       }
                     },
                     onStatus99Changed: (langId) async {
@@ -1426,6 +1435,7 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
   }) {
     bool _shouldAutoSaveOnClose = true;
     bool isDictionaryOpen = false;
+    var currentForm = termForm;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1448,7 +1458,7 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
             canPop: true,
             onPopInvoked: (didPop) async {
               if (didPop && settings.autoSave && _shouldAutoSaveOnClose) {
-                final updatedForm = termForm;
+                final updatedForm = currentForm;
                 ref.read(readerProvider.notifier).saveTerm(updatedForm).then((
                   success,
                 ) {
@@ -1465,8 +1475,6 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
             },
             child: StatefulBuilder(
               builder: (context, setModalState) {
-                var currentForm = termForm;
-
                 return GestureDetector(
                   onVerticalDragEnd: isDictionaryOpen
                       ? null
@@ -1491,6 +1499,7 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                       setModalState(() {});
                     },
                     onSave: (updatedForm) async {
+                      currentForm = updatedForm;
                       final success = await ref
                           .read(readerProvider.notifier)
                           .saveTerm(updatedForm);
@@ -1524,29 +1533,36 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                       setModalState(() {});
                     },
                     onParentDoubleTap: (parent) async {
+                      TermForm? parentTermForm;
                       if (parent.id != null) {
-                        final parentTermForm = await ref
+                        parentTermForm = await ref
                             .read(readerProvider.notifier)
                             .fetchTermFormById(parent.id!);
-                        if (parentTermForm != null && mounted) {
-                          _showParentTermForm(
-                            parentTermForm,
-                            sentence: sentence,
-                            onParentUpdated: (updatedParent) {
-                              currentForm = currentForm.copyWith(
-                                parents: currentForm.parents
-                                    .map(
-                                      (existingParent) =>
-                                          existingParent.id == updatedParent.id
-                                          ? updatedParent
-                                          : existingParent,
-                                    )
-                                    .toList(),
-                              );
-                              setModalState(() {});
-                            },
-                          );
-                        }
+                      } else {
+                        parentTermForm = await ref
+                            .read(readerProvider.notifier)
+                            .fetchTermForm(currentForm.languageId, parent.term);
+                      }
+                      if (parentTermForm != null && mounted) {
+                        _showParentTermForm(
+                          parentTermForm,
+                          sentence: sentence,
+                          onParentUpdated: (updatedParent) {
+                            final updatedParents = currentForm.parents.map((existingParent) {
+                              final matchById = updatedParent.id != null &&
+                                  existingParent.id != null &&
+                                  existingParent.id == updatedParent.id;
+                              final matchByTerm = existingParent.term.trim().toLowerCase() ==
+                                  updatedParent.term.trim().toLowerCase();
+                              if (matchById || matchByTerm) {
+                                return updatedParent;
+                              }
+                              return existingParent;
+                            }).toList();
+                            currentForm = currentForm.copyWith(parents: updatedParents);
+                            setModalState(() {});
+                          },
+                        );
                       }
                     },
                     onStatus99Changed: (langId) async {
@@ -1563,11 +1579,7 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
           ),
         );
       },
-    ).then((_) {
-      if (mounted) {
-        _triggerWordGlow();
-      }
-    });
+    );
   }
 
   void _showSentenceTranslation(String sentence, int languageId) {

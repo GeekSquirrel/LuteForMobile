@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+
+@immutable
 class TermTooltip {
   final String term;
   final String? translation;
@@ -12,7 +15,7 @@ class TermTooltip {
   final List<TermParent> parents;
   final List<TermChild> children;
 
-  TermTooltip({
+  const TermTooltip({
     required this.term,
     this.translation,
     this.termId,
@@ -83,8 +86,42 @@ class TermTooltip {
       children: children ?? this.children,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TermTooltip &&
+          runtimeType == other.runtimeType &&
+          term == other.term &&
+          translation == other.translation &&
+          termId == other.termId &&
+          status == other.status &&
+          statusText == other.statusText &&
+          listEquals(sentences, other.sentences) &&
+          language == other.language &&
+          languageId == other.languageId &&
+          imageUrl == other.imageUrl &&
+          imageFilename == other.imageFilename &&
+          listEquals(parents, other.parents) &&
+          listEquals(children, other.children);
+
+  @override
+  int get hashCode =>
+      term.hashCode ^
+      translation.hashCode ^
+      termId.hashCode ^
+      status.hashCode ^
+      statusText.hashCode ^
+      sentences.hashCode ^
+      language.hashCode ^
+      languageId.hashCode ^
+      imageUrl.hashCode ^
+      imageFilename.hashCode ^
+      parents.hashCode ^
+      children.hashCode;
 }
 
+@immutable
 class TermParent {
   final int? id;
   final String term;
@@ -92,18 +129,65 @@ class TermParent {
   final int? status;
   final bool? syncStatus;
 
-  TermParent({
+  const TermParent({
     this.id,
     required this.term,
     this.translation,
     this.status,
     this.syncStatus,
   });
+
+  TermParent copyWith({
+    int? id,
+    String? term,
+    String? translation,
+    int? status,
+    bool? syncStatus,
+  }) {
+    return TermParent(
+      id: id ?? this.id,
+      term: term ?? this.term,
+      translation: translation ?? this.translation,
+      status: status ?? this.status,
+      syncStatus: syncStatus ?? this.syncStatus,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TermParent &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          term == other.term &&
+          translation == other.translation &&
+          status == other.status &&
+          syncStatus == other.syncStatus;
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      term.hashCode ^
+      translation.hashCode ^
+      status.hashCode ^
+      syncStatus.hashCode;
 }
 
+@immutable
 class TermChild {
   final String term;
   final String? translation;
 
-  TermChild({required this.term, this.translation});
+  const TermChild({required this.term, this.translation});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TermChild &&
+          runtimeType == other.runtimeType &&
+          term == other.term &&
+          translation == other.translation;
+
+  @override
+  int get hashCode => term.hashCode ^ translation.hashCode;
 }
