@@ -47,6 +47,88 @@ void main() {
     });
   });
 
+  group('CustomAppWidgetConfig', () {
+    test('resolveText properly substitutes [LUTE] placeholder', () {
+      const widgetWithPlaceholder = CustomAppWidgetConfig(
+        id: 'custom_1',
+        name: '翻译为中文',
+        template: '翻译 [LUTE]',
+        targetAppId: 'com.eudic.eudic/main',
+        targetAppLabel: '欧路词典',
+      );
+
+      expect(
+        widgetWithPlaceholder.resolveText('hello'),
+        equals('翻译 hello'),
+      );
+
+      const widgetWithMultiplePlaceholder = CustomAppWidgetConfig(
+        id: 'custom_2',
+        name: '多重占位',
+        template: '词汇:[LUTE] 含义:[LUTE]',
+        targetAppId: 'com.google/main',
+        targetAppLabel: 'Google',
+      );
+
+      expect(
+        widgetWithMultiplePlaceholder.resolveText('apple'),
+        equals('词汇:apple 含义:apple'),
+      );
+
+      const widgetWithoutPlaceholder = CustomAppWidgetConfig(
+        id: 'custom_3',
+        name: '无占位符',
+        template: 'Define:',
+        targetAppId: 'com.google/main',
+        targetAppLabel: 'Google',
+      );
+
+      expect(
+        widgetWithoutPlaceholder.resolveText('apple'),
+        equals('Define: apple'),
+      );
+
+      const widgetEmptyTemplate = CustomAppWidgetConfig(
+        id: 'custom_4',
+        name: '空模板',
+        template: '',
+        targetAppId: 'com.google/main',
+        targetAppLabel: 'Google',
+      );
+
+      expect(
+        widgetEmptyTemplate.resolveText('apple'),
+        equals('apple'),
+      );
+    });
+
+    test('fromJson and toJson round-trip correctly', () {
+      const widget = CustomAppWidgetConfig(
+        id: 'custom_12345',
+        name: '语法分析',
+        template: '分析句子语法结构：[LUTE]',
+        targetAppId: 'com.chatgpt.app/main',
+        targetAppLabel: 'ChatGPT',
+        targetAppIconBase64: 'base64icon',
+        actionType: 'SEND',
+        colorValue: 0xFF123456,
+      );
+
+      final json = widget.toJson();
+      final fromJson = CustomAppWidgetConfig.fromJson(json);
+
+      expect(fromJson.id, equals('custom_12345'));
+      expect(fromJson.name, equals('语法分析'));
+      expect(fromJson.template, equals('分析句子语法结构：[LUTE]'));
+      expect(fromJson.targetAppId, equals('com.chatgpt.app/main'));
+      expect(fromJson.targetAppLabel, equals('ChatGPT'));
+      expect(fromJson.targetAppIconBase64, equals('base64icon'));
+      expect(fromJson.actionType, equals('SEND'));
+      expect(fromJson.colorValue, equals(0xFF123456));
+      expect(fromJson, equals(widget));
+    });
+  });
+
   group('LocalAppTabConfig', () {
     test('default values are correct', () {
       const config = LocalAppTabConfig();
@@ -60,46 +142,48 @@ void main() {
       expect(config.hiddenAppIds, isEmpty);
       expect(config.appOrder, isEmpty);
       expect(config.tabTitle, equals('Apps'));
+      expect(config.customWidgets, isEmpty);
     });
 
-    test('fromJson and toJson round-trip with separate term and sentence defaults', () {
+    test('fromJson and toJson round-trip with customWidgets', () {
+      const customWidget = CustomAppWidgetConfig(
+        id: 'custom_1',
+        name: '翻译为中文',
+        template: '翻译 [LUTE]',
+        targetAppId: 'com.eudic.eudic/main',
+        targetAppLabel: '欧路词典',
+      );
+
       const config = LocalAppTabConfig(
         enabled: true,
-        defaultTermAppId: 'com.eudic.eudic/com.eudic.eudic.MainActivity',
+        defaultTermAppId: 'custom_1',
         defaultSentenceAppId: 'com.google.android.apps.translate/main',
         autoInvokeDefault: false,
         hiddenAppIds: ['com.bad.app/main'],
         appOrder: [
-          'com.eudic.eudic/com.eudic.eudic.MainActivity',
-          'com.google/main',
+          'custom_1',
+          'com.eudic.eudic/main',
         ],
         tabTitle: 'Local Dict',
+        customWidgets: [customWidget],
       );
 
       final json = config.toJson();
       final fromJson = LocalAppTabConfig.fromJson(json);
 
       expect(fromJson.enabled, isTrue);
-      expect(
-        fromJson.defaultTermAppId,
-        equals('com.eudic.eudic/com.eudic.eudic.MainActivity'),
-      );
+      expect(fromJson.defaultTermAppId, equals('custom_1'));
       expect(
         fromJson.defaultSentenceAppId,
         equals('com.google.android.apps.translate/main'),
       );
-      expect(
-        fromJson.getDefaultAppId(isSentence: false),
-        equals('com.eudic.eudic/com.eudic.eudic.MainActivity'),
-      );
+      expect(fromJson.getDefaultAppId(isSentence: false), equals('custom_1'));
       expect(
         fromJson.getDefaultAppId(isSentence: true),
         equals('com.google.android.apps.translate/main'),
       );
-      expect(fromJson.autoInvokeDefault, isFalse);
-      expect(fromJson.hiddenAppIds, contains('com.bad.app/main'));
-      expect(fromJson.appOrder.length, equals(2));
-      expect(fromJson.tabTitle, equals('Local Dict'));
+      expect(fromJson.customWidgets.length, equals(1));
+      expect(fromJson.customWidgets.first.name, equals('翻译为中文'));
       expect(fromJson, equals(config));
     });
 
@@ -113,7 +197,10 @@ void main() {
       final config = LocalAppTabConfig.fromJson(legacyJson);
       expect(config.defaultTermAppId, equals('com.legacy.app/main'));
       expect(config.defaultAppId, equals('com.legacy.app/main'));
-      expect(config.getDefaultAppId(isSentence: false), equals('com.legacy.app/main'));
+      expect(
+        config.getDefaultAppId(isSentence: false),
+        equals('com.legacy.app/main'),
+      );
       expect(config.defaultSentenceAppId, isNull);
     });
 
@@ -127,10 +214,14 @@ void main() {
       final clearedTerm = config.copyWith(clearDefaultTermAppId: true);
       expect(clearedTerm.defaultTermAppId, isNull);
       expect(clearedTerm.getDefaultAppId(isSentence: false), isNull);
-      expect(clearedTerm.defaultSentenceAppId, equals('com.google.translate/main'));
+      expect(
+        clearedTerm.defaultSentenceAppId,
+        equals('com.google.translate/main'),
+      );
 
       // Clear sentence default only
-      final clearedSentence = config.copyWith(clearDefaultSentenceAppId: true);
+      final clearedSentence =
+          config.copyWith(clearDefaultSentenceAppId: true);
       expect(clearedSentence.defaultTermAppId, equals('com.eudic.eudic/main'));
       expect(clearedSentence.defaultSentenceAppId, isNull);
       expect(clearedSentence.getDefaultAppId(isSentence: true), isNull);
@@ -140,8 +231,14 @@ void main() {
         defaultTermAppId: 'com.new.term/main',
         defaultSentenceAppId: 'com.new.sentence/main',
       );
-      expect(updated.getDefaultAppId(isSentence: false), equals('com.new.term/main'));
-      expect(updated.getDefaultAppId(isSentence: true), equals('com.new.sentence/main'));
+      expect(
+        updated.getDefaultAppId(isSentence: false),
+        equals('com.new.term/main'),
+      );
+      expect(
+        updated.getDefaultAppId(isSentence: true),
+        equals('com.new.sentence/main'),
+      );
     });
   });
 }

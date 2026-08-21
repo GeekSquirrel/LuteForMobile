@@ -79,6 +79,44 @@ class LocalAppTabConfigNotifier extends Notifier<LocalAppTabConfig> {
   Future<void> setTabTitle(String title) async {
     await updateConfig(state.copyWith(tabTitle: title));
   }
+
+  Future<void> addCustomWidget(CustomAppWidgetConfig customWidget) async {
+    final widgets = List<CustomAppWidgetConfig>.from(state.customWidgets)
+      ..add(customWidget);
+    final order = List<String>.from(state.appOrder);
+    if (!order.contains(customWidget.id)) {
+      order.add(customWidget.id);
+    }
+    await updateConfig(state.copyWith(
+      customWidgets: widgets,
+      appOrder: order,
+    ));
+  }
+
+  Future<void> updateCustomWidget(CustomAppWidgetConfig customWidget) async {
+    final widgets = state.customWidgets
+        .map((w) => w.id == customWidget.id ? customWidget : w)
+        .toList();
+    await updateConfig(state.copyWith(customWidgets: widgets));
+  }
+
+  Future<void> deleteCustomWidget(String widgetId) async {
+    final widgets =
+        state.customWidgets.where((w) => w.id != widgetId).toList();
+    final order = state.appOrder.where((id) => id != widgetId).toList();
+    final hidden = state.hiddenAppIds.where((id) => id != widgetId).toList();
+    final isTermDefault = state.getDefaultAppId(isSentence: false) == widgetId;
+    final isSentenceDefault =
+        state.getDefaultAppId(isSentence: true) == widgetId;
+
+    await updateConfig(state.copyWith(
+      customWidgets: widgets,
+      appOrder: order,
+      hiddenAppIds: hidden,
+      clearDefaultTermAppId: isTermDefault,
+      clearDefaultSentenceAppId: isSentenceDefault,
+    ));
+  }
 }
 
 final localAppTabConfigProvider =

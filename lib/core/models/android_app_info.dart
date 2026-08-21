@@ -73,6 +73,112 @@ class AndroidAppInfo {
 }
 
 @immutable
+class CustomAppWidgetConfig {
+  final String id; // unique ID, e.g. "custom_1724213890123"
+  final String name; // widget label
+  final String template; // e.g. "翻译 [LUTE]"
+  final String targetAppId; // packageName/activityName
+  final String targetAppLabel;
+  final String? targetAppIconBase64;
+  final String actionType; // 'PROCESS_TEXT' or 'SEND'
+  final int? colorValue; // optional accent color (ARGB)
+
+  const CustomAppWidgetConfig({
+    required this.id,
+    required this.name,
+    required this.template,
+    required this.targetAppId,
+    required this.targetAppLabel,
+    this.targetAppIconBase64,
+    this.actionType = 'PROCESS_TEXT',
+    this.colorValue,
+  });
+
+  /// Replaces the placeholder [LUTE] with the given text.
+  /// If the template does not contain [LUTE], appends the text after template.
+  String resolveText(String rawText) {
+    if (template.contains('[LUTE]')) {
+      return template.replaceAll('[LUTE]', rawText);
+    }
+    if (template.trim().isEmpty) {
+      return rawText;
+    }
+    return '$template $rawText';
+  }
+
+  factory CustomAppWidgetConfig.fromJson(Map<String, dynamic> json) {
+    return CustomAppWidgetConfig(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      template: json['template'] as String? ?? '[LUTE]',
+      targetAppId: json['targetAppId'] as String? ?? '',
+      targetAppLabel: json['targetAppLabel'] as String? ?? '',
+      targetAppIconBase64: json['targetAppIconBase64'] as String?,
+      actionType: json['actionType'] as String? ?? 'PROCESS_TEXT',
+      colorValue: json['colorValue'] as int?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'template': template,
+      'targetAppId': targetAppId,
+      'targetAppLabel': targetAppLabel,
+      if (targetAppIconBase64 != null) 'targetAppIconBase64': targetAppIconBase64,
+      'actionType': actionType,
+      if (colorValue != null) 'colorValue': colorValue,
+    };
+  }
+
+  CustomAppWidgetConfig copyWith({
+    String? id,
+    String? name,
+    String? template,
+    String? targetAppId,
+    String? targetAppLabel,
+    String? targetAppIconBase64,
+    String? actionType,
+    int? colorValue,
+  }) {
+    return CustomAppWidgetConfig(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      template: template ?? this.template,
+      targetAppId: targetAppId ?? this.targetAppId,
+      targetAppLabel: targetAppLabel ?? this.targetAppLabel,
+      targetAppIconBase64: targetAppIconBase64 ?? this.targetAppIconBase64,
+      actionType: actionType ?? this.actionType,
+      colorValue: colorValue ?? this.colorValue,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CustomAppWidgetConfig &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          template == other.template &&
+          targetAppId == other.targetAppId &&
+          targetAppLabel == other.targetAppLabel &&
+          actionType == other.actionType &&
+          colorValue == other.colorValue;
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      name.hashCode ^
+      template.hashCode ^
+      targetAppId.hashCode ^
+      targetAppLabel.hashCode ^
+      actionType.hashCode ^
+      colorValue.hashCode;
+}
+
+@immutable
 class LocalAppTabConfig {
   final bool enabled;
   final String? defaultTermAppId;
@@ -81,6 +187,7 @@ class LocalAppTabConfig {
   final List<String> hiddenAppIds;
   final List<String> appOrder;
   final String tabTitle;
+  final List<CustomAppWidgetConfig> customWidgets;
 
   const LocalAppTabConfig({
     this.enabled = true,
@@ -91,6 +198,7 @@ class LocalAppTabConfig {
     this.hiddenAppIds = const [],
     this.appOrder = const [],
     this.tabTitle = 'Apps',
+    this.customWidgets = const [],
   }) : _legacyDefaultAppId = defaultAppId;
 
   final String? _legacyDefaultAppId;
@@ -124,6 +232,12 @@ class LocalAppTabConfig {
               .toList() ??
           const [],
       tabTitle: json['tabTitle'] as String? ?? 'Apps',
+      customWidgets:
+          (json['customWidgets'] as List<dynamic>?)
+              ?.map((e) =>
+                  CustomAppWidgetConfig.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
     );
   }
 
@@ -137,6 +251,7 @@ class LocalAppTabConfig {
       'hiddenAppIds': hiddenAppIds,
       'appOrder': appOrder,
       'tabTitle': tabTitle,
+      'customWidgets': customWidgets.map((e) => e.toJson()).toList(),
     };
   }
 
@@ -152,6 +267,7 @@ class LocalAppTabConfig {
     List<String>? hiddenAppIds,
     List<String>? appOrder,
     String? tabTitle,
+    List<CustomAppWidgetConfig>? customWidgets,
   }) {
     final effectiveClearTerm = clearDefaultTermAppId || clearDefaultAppId;
     final effectiveTerm = effectiveClearTerm
@@ -171,6 +287,7 @@ class LocalAppTabConfig {
       hiddenAppIds: hiddenAppIds ?? this.hiddenAppIds,
       appOrder: appOrder ?? this.appOrder,
       tabTitle: tabTitle ?? this.tabTitle,
+      customWidgets: customWidgets ?? this.customWidgets,
     );
   }
 
@@ -186,7 +303,8 @@ class LocalAppTabConfig {
           autoInvokeDefault == other.autoInvokeDefault &&
           listEquals(hiddenAppIds, other.hiddenAppIds) &&
           listEquals(appOrder, other.appOrder) &&
-          tabTitle == other.tabTitle;
+          tabTitle == other.tabTitle &&
+          listEquals(customWidgets, other.customWidgets);
 
   @override
   int get hashCode =>
@@ -197,5 +315,6 @@ class LocalAppTabConfig {
       autoInvokeDefault.hashCode ^
       hiddenAppIds.hashCode ^
       appOrder.hashCode ^
-      tabTitle.hashCode;
+      tabTitle.hashCode ^
+      customWidgets.hashCode;
 }

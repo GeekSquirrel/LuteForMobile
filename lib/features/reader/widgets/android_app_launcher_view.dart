@@ -6,6 +6,41 @@ import '../../../core/models/android_app_info.dart';
 import '../../../core/providers/android_app_provider.dart';
 import '../../../shared/theme/theme_extensions.dart';
 
+abstract class LauncherItem {
+  String get id;
+  String get label;
+  String? get iconBase64;
+  bool get isCustomWidget;
+}
+
+class AppLauncherItem implements LauncherItem {
+  final AndroidAppInfo app;
+  const AppLauncherItem(this.app);
+
+  @override
+  String get id => app.id;
+  @override
+  String get label => app.label;
+  @override
+  String? get iconBase64 => app.iconBase64;
+  @override
+  bool get isCustomWidget => false;
+}
+
+class CustomWidgetLauncherItem implements LauncherItem {
+  final CustomAppWidgetConfig widgetConfig;
+  const CustomWidgetLauncherItem(this.widgetConfig);
+
+  @override
+  String get id => widgetConfig.id;
+  @override
+  String get label => widgetConfig.name;
+  @override
+  String? get iconBase64 => widgetConfig.targetAppIconBase64;
+  @override
+  bool get isCustomWidget => true;
+}
+
 class AndroidAppLauncherView extends ConsumerStatefulWidget {
   final String text;
   final bool isSentence;
@@ -50,13 +85,11 @@ class _AndroidAppLauncherViewState
   void didUpdateWidget(AndroidAppLauncherView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!oldWidget.isActive && widget.isActive) {
-      // Switched TO this tab!
       _hasAutoInvokedForCurrentActivation = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _checkAndAutoInvoke();
       });
     } else if (widget.isActive && oldWidget.text != widget.text) {
-      // Current tab, but search text changed!
       _hasAutoInvokedForCurrentActivation = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _checkAndAutoInvoke();
@@ -83,8 +116,21 @@ class _AndroidAppLauncherViewState
     final apps = await service.getInstalledApps();
     if (!mounted || !widget.isActive || !widget.autoInvoke || currentCount != _invokeCounter) return;
 
-    final defaultApp =
-        apps.where((a) => a.id == defaultAppId).firstOrNull;
+    // Check if default is a custom widget
+    final customWidget = config.customWidgets
+        .where((w) => w.id == defaultAppId)
+        .firstOrNull;
+    if (customWidget != null) {
+      if (config.hiddenAppIds.contains(customWidget.id)) return;
+      if (_hasAutoInvokedForCurrentActivation) return;
+      _hasAutoInvokedForCurrentActivation = true;
+      widget.onAutoInvoked?.call();
+      await _launchCustomWidget(customWidget, apps);
+      return;
+    }
+
+    // Otherwise check regular app
+    final defaultApp = apps.where((a) => a.id == defaultAppId).firstOrNull;
     if (defaultApp != null && !config.hiddenAppIds.contains(defaultApp.id)) {
       if (_hasAutoInvokedForCurrentActivation) return;
       _hasAutoInvokedForCurrentActivation = true;
@@ -93,12 +139,41 @@ class _AndroidAppLauncherViewState
     }
   }
 
-  List<AndroidAppInfo> _getSortedVisibleApps(
+  Future<void> _launchCustomWidget(
+    CustomAppWidgetConfig customWidget,
+    List<AndroidAppInfo> allApps,
+  ) async {
+    final service = ref.read(androidAppServiceProvider);
+    final resolvedText = customWidget.resolveText(widget.text);
+    final targetApp =
+        allApps.where((a) => a.id == customWidget.targetAppId).firstOrNull;
+    if (targetApp != null) {
+      await service.launchApp(targetApp, resolvedText);
+    } else {
+      final parts = customWidget.targetAppId.split('/');
+      final pkg = parts.first;
+      final act = parts.length > 1 ? parts.sublist(1).join('/') : null;
+      final fallbackApp = AndroidAppInfo(
+        packageName: pkg,
+        activityName: act ?? '',
+        label: customWidget.targetAppLabel,
+        actionType: customWidget.actionType,
+      );
+      await service.launchApp(fallbackApp, resolvedText);
+    }
+  }
+
+  List<LauncherItem> _getSortedVisibleItems(
     List<AndroidAppInfo> allApps,
     LocalAppTabConfig config,
   ) {
+    final appItems = allApps.map((a) => AppLauncherItem(a));
+    final customItems =
+        config.customWidgets.map((w) => CustomWidgetLauncherItem(w));
+    final allItems = <LauncherItem>[...appItems, ...customItems];
+
     final visible =
-        allApps.where((a) => !config.hiddenAppIds.contains(a.id)).toList();
+        allItems.where((i) => !config.hiddenAppIds.contains(i.id)).toList();
 
     if (config.appOrder.isNotEmpty) {
       final orderMap = <String, int>{};
@@ -151,23 +226,22 @@ class _AndroidAppLauncherViewState
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (err, stack) => _buildErrorState(context, err.toString()),
             data: (allApps) {
-              if (allApps.isEmpty) {
+              if (allApps.isEmpty && config.customWidgets.isEmpty) {
                 return _buildEmptyState(context);
               }
 
-              // Also trigger if apps just finished loading while tab is active
               if (widget.isActive && !_hasAutoInvokedForCurrentActivation) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   _checkAndAutoInvoke();
                 });
               }
 
-              final visibleApps = _getSortedVisibleApps(allApps, config);
-              if (visibleApps.isEmpty) {
+              final visibleItems = _getSortedVisibleItems(allApps, config);
+              if (visibleItems.isEmpty) {
                 return _buildAllHiddenState(context, allApps);
               }
 
-              return _buildAppGrid(context, visibleApps, config);
+              return _buildAppGrid(context, visibleItems, allApps, config);
             },
           ),
         ),
@@ -182,14 +256,21 @@ class _AndroidAppLauncherViewState
   ) {
     final currentDefaultId =
         config.getDefaultAppId(isSentence: widget.isSentence);
-    String? defaultAppLabel;
+    String? defaultItemLabel;
     if (currentDefaultId != null) {
-      appsAsync.whenData((apps) {
-        final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
-        if (app != null) {
-          defaultAppLabel = app.label;
-        }
-      });
+      final customWidget = config.customWidgets
+          .where((w) => w.id == currentDefaultId)
+          .firstOrNull;
+      if (customWidget != null) {
+        defaultItemLabel = 'Widget: ${customWidget.name}';
+      } else {
+        appsAsync.whenData((apps) {
+          final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
+          if (app != null) {
+            defaultItemLabel = app.label;
+          }
+        });
+      }
     }
 
     return Container(
@@ -223,7 +304,7 @@ class _AndroidAppLauncherViewState
                       color: context.appColorScheme.text.primary,
                     ),
               ),
-              if (defaultAppLabel != null) ...[
+              if (defaultItemLabel != null) ...[
                 const SizedBox(width: 8),
                 Flexible(
                   child: Container(
@@ -246,7 +327,7 @@ class _AndroidAppLauncherViewState
                         const SizedBox(width: 3),
                         Flexible(
                           child: Text(
-                            defaultAppLabel!,
+                            defaultItemLabel!,
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -262,6 +343,22 @@ class _AndroidAppLauncherViewState
                 ),
               ],
               const Spacer(),
+              Tooltip(
+                message: 'Add Custom Widget',
+                child: InkWell(
+                  onTap: () {
+                    appsAsync.whenData((allApps) {
+                      _showCustomWidgetDialog(context, allApps: allApps);
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Icon(Icons.add_circle_outline, size: 18),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
               Tooltip(
                 message: config.autoInvokeDefault
                     ? 'Auto-launch on open: ON'
@@ -301,7 +398,7 @@ class _AndroidAppLauncherViewState
               ),
               const SizedBox(width: 4),
               Tooltip(
-                message: 'Manage & Reorder Apps',
+                message: 'Manage Apps & Widgets',
                 child: InkWell(
                   onTap: () => _showManageAppsSheet(context),
                   borderRadius: BorderRadius.circular(16),
@@ -326,7 +423,6 @@ class _AndroidAppLauncherViewState
             ],
           ),
           const SizedBox(height: 8),
-          // App list content
           appsAsync.when(
             loading: () => const SizedBox(
               height: 64,
@@ -351,7 +447,7 @@ class _AndroidAppLauncherViewState
               ),
             ),
             data: (allApps) {
-              if (allApps.isEmpty) {
+              if (allApps.isEmpty && config.customWidgets.isEmpty) {
                 return SizedBox(
                   height: 40,
                   child: Center(
@@ -372,15 +468,15 @@ class _AndroidAppLauncherViewState
                 });
               }
 
-              final visibleApps = _getSortedVisibleApps(allApps, config);
-              if (visibleApps.isEmpty) {
+              final visibleItems = _getSortedVisibleItems(allApps, config);
+              if (visibleItems.isEmpty) {
                 return SizedBox(
                   height: 40,
                   child: Center(
                     child: TextButton.icon(
                       onPressed: () => _showManageAppsSheet(context),
                       icon: const Icon(Icons.tune, size: 16),
-                      label: const Text('All apps hidden. Tap to manage'),
+                      label: const Text('All apps & widgets hidden. Tap to manage'),
                     ),
                   ),
                 );
@@ -390,17 +486,28 @@ class _AndroidAppLauncherViewState
                 height: 72,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  itemCount: visibleApps.length,
-                  separatorBuilder: (context, index) => const SizedBox(width: 8),
+                  itemCount: visibleItems.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(width: 8),
                   itemBuilder: (context, index) {
-                    final app = visibleApps[index];
-                    final isDefault = app.id == currentDefaultId;
+                    final item = visibleItems[index];
+                    final isDefault = item.id == currentDefaultId;
 
+                    if (item.isCustomWidget) {
+                      return _buildInlineCustomWidgetItem(
+                        context,
+                        (item as CustomWidgetLauncherItem).widgetConfig,
+                        isDefault,
+                        config,
+                        allApps,
+                      );
+                    }
                     return _buildInlineAppItem(
                       context,
-                      app,
+                      (item as AppLauncherItem).app,
                       isDefault,
                       config,
+                      allApps,
                     );
                   },
                 ),
@@ -417,6 +524,7 @@ class _AndroidAppLauncherViewState
     AndroidAppInfo app,
     bool isDefault,
     LocalAppTabConfig config,
+    List<AndroidAppInfo> allApps,
   ) {
     return Material(
       color: Colors.transparent,
@@ -424,7 +532,7 @@ class _AndroidAppLauncherViewState
         onTap: () {
           ref.read(androidAppServiceProvider).launchApp(app, widget.text);
         },
-        onLongPress: () => _showAppOptionsSheet(context, app, config),
+        onLongPress: () => _showAppOptionsSheet(context, app, config, allApps),
         borderRadius: BorderRadius.circular(10),
         child: Container(
           width: 60,
@@ -491,6 +599,111 @@ class _AndroidAppLauncherViewState
     );
   }
 
+  Widget _buildInlineCustomWidgetItem(
+    BuildContext context,
+    CustomAppWidgetConfig customWidget,
+    bool isDefault,
+    LocalAppTabConfig config,
+    List<AndroidAppInfo> allApps,
+  ) {
+    // Each custom widget spans 2 apps wide (60*2 + 8 spacing = 128)
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _launchCustomWidget(customWidget, allApps),
+        onLongPress: () =>
+            _showCustomWidgetOptionsSheet(context, customWidget, config, allApps),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          width: 128,
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: isDefault
+                  ? [
+                      context.m3Primary.withValues(alpha: 0.18),
+                      context.m3Primary.withValues(alpha: 0.08),
+                    ]
+                  : [
+                      context.appColorScheme.background.surfaceContainerHighest
+                          .withValues(alpha: 0.65),
+                      context.appColorScheme.background.surface
+                          .withValues(alpha: 0.4),
+                    ],
+            ),
+            border: Border.all(
+              color: isDefault
+                  ? context.m3Primary
+                  : context.m3Primary.withValues(alpha: 0.35),
+              width: isDefault ? 1.5 : 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Row(
+                children: [
+                  _buildSmallAppIcon(customWidget.targetAppIconBase64, size: 16),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      customWidget.targetAppLabel,
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: context.m3Primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (isDefault)
+                    Container(
+                      padding: const EdgeInsets.all(1.5),
+                      decoration: BoxDecoration(
+                        color: context.m3Primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.star,
+                        size: 8,
+                        color: Colors.white,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 3),
+              Text(
+                customWidget.name,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: context.appColorScheme.text.primary,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 1),
+              Text(
+                customWidget.template,
+                style: TextStyle(
+                  fontSize: 8.5,
+                  color: context.appColorScheme.text.primary.withValues(alpha: 0.55),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildInlineAppIcon(String? iconBase64) {
     if (iconBase64 != null && iconBase64.isNotEmpty) {
       try {
@@ -513,6 +726,28 @@ class _AndroidAppLauncherViewState
     return _buildInlineFallbackIcon();
   }
 
+  Widget _buildSmallAppIcon(String? iconBase64, {double size = 20}) {
+    if (iconBase64 != null && iconBase64.isNotEmpty) {
+      try {
+        final bytes = base64Decode(iconBase64);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: Image.memory(
+            bytes,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) =>
+                Icon(Icons.widgets, size: size, color: context.m3Primary),
+          ),
+        );
+      } catch (_) {
+        return Icon(Icons.widgets, size: size, color: context.m3Primary);
+      }
+    }
+    return Icon(Icons.widgets, size: size, color: context.m3Primary);
+  }
+
   Widget _buildInlineFallbackIcon() {
     return Container(
       width: 32,
@@ -529,21 +764,28 @@ class _AndroidAppLauncherViewState
     final appsAsync = ref.watch(installedAppsProvider);
     final currentDefaultId =
         config.getDefaultAppId(isSentence: widget.isSentence);
-    String? defaultAppLabel;
+    String? defaultItemLabel;
     if (currentDefaultId != null) {
-      appsAsync.whenData((apps) {
-        final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
-        if (app != null) {
-          defaultAppLabel = app.label;
-        }
-      });
+      final customWidget = config.customWidgets
+          .where((w) => w.id == currentDefaultId)
+          .firstOrNull;
+      if (customWidget != null) {
+        defaultItemLabel = 'Widget: ${customWidget.name}';
+      } else {
+        appsAsync.whenData((apps) {
+          final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
+          if (app != null) {
+            defaultItemLabel = app.label;
+          }
+        });
+      }
     }
 
-    final defaultText = defaultAppLabel != null
+    final defaultText = defaultItemLabel != null
         ? (widget.isSentence
-            ? 'Default (Sentence): $defaultAppLabel'
-            : 'Default (Term): $defaultAppLabel')
-        : 'Tap app to launch';
+            ? 'Default (Sentence): $defaultItemLabel'
+            : 'Default (Term): $defaultItemLabel')
+        : 'Tap app or widget to launch';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -567,6 +809,19 @@ class _AndroidAppLauncherViewState
                   ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Tooltip(
+            message: 'Add Custom Widget',
+            child: IconButton(
+              icon: const Icon(Icons.add_circle_outline, size: 20),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+              onPressed: () {
+                appsAsync.whenData((allApps) {
+                  _showCustomWidgetDialog(context, allApps: allApps);
+                });
+              },
             ),
           ),
           Tooltip(
@@ -603,7 +858,7 @@ class _AndroidAppLauncherViewState
             ),
           ),
           Tooltip(
-            message: 'Manage & Reorder Apps',
+            message: 'Manage Apps & Widgets',
             child: IconButton(
               icon: const Icon(Icons.tune, size: 20),
               padding: EdgeInsets.zero,
@@ -640,31 +895,57 @@ class _AndroidAppLauncherViewState
 
   Widget _buildAppGrid(
     BuildContext context,
-    List<AndroidAppInfo> visibleApps,
+    List<LauncherItem> visibleItems,
+    List<AndroidAppInfo> allApps,
     LocalAppTabConfig config,
   ) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Use 4 columns on mobile for a compact, neat launcher layout
-        final crossAxisCount = (constraints.maxWidth / 78).clamp(4, 8).toInt();
+        final double padding = 8.0;
+        final double spacing = 6.0;
+        final double availableWidth = constraints.maxWidth - (padding * 2);
+
+        // 4 columns layout
+        final int columns = 4;
+        final double unitWidth =
+            ((availableWidth - ((columns - 1) * spacing)) / columns)
+                .floorToDouble();
+        final double doubleWidth = (unitWidth * 2) + spacing;
+        final double itemHeight = (unitWidth / 0.85).roundToDouble();
+
         final currentDefaultId =
             config.getDefaultAppId(isSentence: widget.isSentence);
 
-        return GridView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            crossAxisSpacing: 6,
-            mainAxisSpacing: 6,
-            childAspectRatio: 0.85,
-          ),
-          itemCount: visibleApps.length,
-          itemBuilder: (context, index) {
-            final app = visibleApps[index];
-            final isDefault = app.id == currentDefaultId;
+        return SingleChildScrollView(
+          padding: EdgeInsets.symmetric(horizontal: padding, vertical: padding),
+          child: Wrap(
+            spacing: spacing,
+            runSpacing: spacing,
+            children: visibleItems.map((item) {
+              final isDefault = item.id == currentDefaultId;
+              final width = item.isCustomWidget ? doubleWidth : unitWidth;
 
-            return _buildAppItem(context, app, isDefault, config);
-          },
+              return SizedBox(
+                width: width,
+                height: itemHeight,
+                child: item.isCustomWidget
+                    ? _buildCustomWidgetItem(
+                        context,
+                        (item as CustomWidgetLauncherItem).widgetConfig,
+                        isDefault,
+                        config,
+                        allApps,
+                      )
+                    : _buildAppItem(
+                        context,
+                        (item as AppLauncherItem).app,
+                        isDefault,
+                        config,
+                        allApps,
+                      ),
+              );
+            }).toList(),
+          ),
         );
       },
     );
@@ -675,6 +956,7 @@ class _AndroidAppLauncherViewState
     AndroidAppInfo app,
     bool isDefault,
     LocalAppTabConfig config,
+    List<AndroidAppInfo> allApps,
   ) {
     return Material(
       color: Colors.transparent,
@@ -682,7 +964,7 @@ class _AndroidAppLauncherViewState
         onTap: () {
           ref.read(androidAppServiceProvider).launchApp(app, widget.text);
         },
-        onLongPress: () => _showAppOptionsSheet(context, app, config),
+        onLongPress: () => _showAppOptionsSheet(context, app, config, allApps),
         borderRadius: BorderRadius.circular(10),
         child: Container(
           decoration: BoxDecoration(
@@ -749,6 +1031,111 @@ class _AndroidAppLauncherViewState
     );
   }
 
+  Widget _buildCustomWidgetItem(
+    BuildContext context,
+    CustomAppWidgetConfig customWidget,
+    bool isDefault,
+    LocalAppTabConfig config,
+    List<AndroidAppInfo> allApps,
+  ) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _launchCustomWidget(customWidget, allApps),
+        onLongPress: () =>
+            _showCustomWidgetOptionsSheet(context, customWidget, config, allApps),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: isDefault
+                  ? [
+                      context.m3Primary.withValues(alpha: 0.18),
+                      context.m3Primary.withValues(alpha: 0.08),
+                    ]
+                  : [
+                      context.appColorScheme.background.surfaceContainerHighest
+                          .withValues(alpha: 0.7),
+                      context.appColorScheme.background.surface
+                          .withValues(alpha: 0.45),
+                    ],
+            ),
+            border: Border.all(
+              color: isDefault
+                  ? context.m3Primary
+                  : context.m3Primary.withValues(alpha: 0.35),
+              width: isDefault ? 1.5 : 1,
+            ),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  _buildSmallAppIcon(customWidget.targetAppIconBase64, size: 20),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      customWidget.targetAppLabel,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: context.m3Primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (isDefault)
+                    Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: context.m3Primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.star,
+                        size: 9,
+                        color: Colors.white,
+                      ),
+                    ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  customWidget.name,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12.5,
+                        color: context.appColorScheme.text.primary,
+                      ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                '模板: ${customWidget.template}',
+                style: TextStyle(
+                  fontSize: 9.5,
+                  color: context.appColorScheme.text.primary
+                      .withValues(alpha: 0.6),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildAppIcon(String? iconBase64) {
     if (iconBase64 != null && iconBase64.isNotEmpty) {
       try {
@@ -787,6 +1174,7 @@ class _AndroidAppLauncherViewState
     BuildContext context,
     AndroidAppInfo app,
     LocalAppTabConfig config,
+    List<AndroidAppInfo> allApps,
   ) {
     final isTermDefault =
         app.id == config.getDefaultAppId(isSentence: false);
@@ -890,6 +1278,19 @@ class _AndroidAppLauncherViewState
                         .launchApp(app, widget.text);
                   },
                 ),
+                ListTile(
+                  leading: const Icon(Icons.add_circle_outline),
+                  title: const Text('Create Custom Widget with this App'),
+                  subtitle: const Text('Add a quick launcher widget with custom text template'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _showCustomWidgetDialog(
+                      context,
+                      allApps: allApps,
+                      initialTargetApp: app,
+                    );
+                  },
+                ),
                 if (!widget.isSentence) ...[
                   termTile,
                   sentenceTile,
@@ -930,6 +1331,490 @@ class _AndroidAppLauncherViewState
     );
   }
 
+  void _showCustomWidgetOptionsSheet(
+    BuildContext context,
+    CustomAppWidgetConfig customWidget,
+    LocalAppTabConfig config,
+    List<AndroidAppInfo> allApps,
+  ) {
+    final isTermDefault =
+        customWidget.id == config.getDefaultAppId(isSentence: false);
+    final isSentenceDefault =
+        customWidget.id == config.getDefaultAppId(isSentence: true);
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        final termTile = ListTile(
+          leading: Icon(
+            isTermDefault ? Icons.star : Icons.star_border,
+            color: isTermDefault ? Colors.amber : null,
+          ),
+          title: Text(
+            isTermDefault
+                ? 'Clear Default for Terms'
+                : 'Set as Default for Terms',
+          ),
+          subtitle: Text(
+            isTermDefault
+                ? 'Currently auto-invoked with template for terms'
+                : 'Auto-invoke this widget when looking up terms',
+          ),
+          onTap: () {
+            Navigator.pop(sheetContext);
+            ref
+                .read(localAppTabConfigProvider.notifier)
+                .setDefaultApp(
+                  isTermDefault ? null : customWidget.id,
+                  isSentence: false,
+                );
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  isTermDefault
+                      ? 'Cleared default widget for terms'
+                      : 'Set ${customWidget.name} as default for terms',
+                ),
+                duration: const Duration(seconds: 1),
+              ),
+            );
+          },
+        );
+
+        final sentenceTile = ListTile(
+          leading: Icon(
+            isSentenceDefault ? Icons.star : Icons.star_border,
+            color: isSentenceDefault ? Colors.amber : null,
+          ),
+          title: Text(
+            isSentenceDefault
+                ? 'Clear Default for Sentences'
+                : 'Set as Default for Sentences',
+          ),
+          subtitle: Text(
+            isSentenceDefault
+                ? 'Currently auto-invoked with template for sentences'
+                : 'Auto-invoke this widget when looking up sentences',
+          ),
+          onTap: () {
+            Navigator.pop(sheetContext);
+            ref
+                .read(localAppTabConfigProvider.notifier)
+                .setDefaultApp(
+                  isSentenceDefault ? null : customWidget.id,
+                  isSentence: true,
+                );
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  isSentenceDefault
+                      ? 'Cleared default widget for sentences'
+                      : 'Set ${customWidget.name} as default for sentences',
+                ),
+                duration: const Duration(seconds: 1),
+              ),
+            );
+          },
+        );
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: _buildSmallAppIcon(customWidget.targetAppIconBase64, size: 28),
+                  title: Text(
+                    customWidget.name,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    'Target: ${customWidget.targetAppLabel} | Template: ${customWidget.template}',
+                  ),
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.play_arrow),
+                  title: const Text('Execute Custom Widget'),
+                  subtitle: Text('Sends: "${customWidget.resolveText(widget.text)}"'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _launchCustomWidget(customWidget, allApps);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('Edit Custom Widget'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _showCustomWidgetDialog(
+                      context,
+                      allApps: allApps,
+                      existingWidget: customWidget,
+                    );
+                  },
+                ),
+                if (!widget.isSentence) ...[
+                  termTile,
+                  sentenceTile,
+                ] else ...[
+                  sentenceTile,
+                  termTile,
+                ],
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                  title: const Text(
+                    'Delete Custom Widget',
+                    style: TextStyle(color: Colors.redAccent),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _confirmDeleteCustomWidget(context, customWidget);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteCustomWidget(
+    BuildContext context,
+    CustomAppWidgetConfig customWidget,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Custom Widget'),
+          content: Text('Are you sure you want to delete "${customWidget.name}"?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                ref
+                    .read(localAppTabConfigProvider.notifier)
+                    .deleteCustomWidget(customWidget.id);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Deleted "${customWidget.name}"'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              },
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showCustomWidgetDialog(
+    BuildContext context, {
+    required List<AndroidAppInfo> allApps,
+    CustomAppWidgetConfig? existingWidget,
+    AndroidAppInfo? initialTargetApp,
+  }) {
+    if (allApps.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No installed text apps available to target.'),
+        ),
+      );
+      return;
+    }
+
+    final isEditing = existingWidget != null;
+    final nameController = TextEditingController(
+      text: existingWidget?.name ??
+          (initialTargetApp != null ? '翻译到 ${initialTargetApp.label}' : ''),
+    );
+    final templateController = TextEditingController(
+      text: existingWidget?.template ?? '翻译 [LUTE]',
+    );
+
+    AndroidAppInfo selectedApp = initialTargetApp ??
+        (existingWidget != null
+            ? allApps
+                    .where((a) => a.id == existingWidget.targetAppId)
+                    .firstOrNull ??
+                allApps.first
+            : allApps.first);
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final previewText = templateController.text.contains('[LUTE]')
+                ? templateController.text.replaceAll(
+                    '[LUTE]',
+                    widget.text.isNotEmpty ? widget.text : '示例内容',
+                  )
+                : (templateController.text.trim().isEmpty
+                    ? (widget.text.isNotEmpty ? widget.text : '示例内容')
+                    : '${templateController.text} ${widget.text.isNotEmpty ? widget.text : "示例内容"}');
+
+            return AlertDialog(
+              title: Text(isEditing ? 'Edit Custom Widget' : 'Add Custom Widget'),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: 380,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Widget Name (组件名称) *',
+                          hintText: 'e.g. 翻译为中文, 语法解析',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: templateController,
+                        onChanged: (_) => setDialogState(() {}),
+                        decoration: InputDecoration(
+                          labelText: 'Template (模板内容) *',
+                          hintText: 'e.g. 翻译 [LUTE]',
+                          helperText: '[LUTE] is the placeholder for selected text',
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.add),
+                            tooltip: 'Insert [LUTE]',
+                            onPressed: () {
+                              final text = templateController.text;
+                              final selection = templateController.selection;
+                              if (selection.isValid &&
+                                  selection.start >= 0 &&
+                                  selection.end >= 0) {
+                                final newText = text.replaceRange(
+                                  selection.start,
+                                  selection.end,
+                                  '[LUTE]',
+                                );
+                                templateController.value = TextEditingValue(
+                                  text: newText,
+                                  selection: TextSelection.collapsed(
+                                    offset: selection.start + 6,
+                                  ),
+                                );
+                              } else {
+                                templateController.text = '$text [LUTE]'.trim();
+                              }
+                              setDialogState(() {});
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Preset template chips
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          _buildPresetChip(
+                            label: '翻译 [LUTE]',
+                            onTap: () {
+                              templateController.text = '翻译 [LUTE]';
+                              setDialogState(() {});
+                            },
+                          ),
+                          _buildPresetChip(
+                            label: 'Define: [LUTE]',
+                            onTap: () {
+                              templateController.text = 'Define: [LUTE]';
+                              setDialogState(() {});
+                            },
+                          ),
+                          _buildPresetChip(
+                            label: '解释词汇：[LUTE]',
+                            onTap: () {
+                              templateController.text = '解释词汇：[LUTE]';
+                              setDialogState(() {});
+                            },
+                          ),
+                          _buildPresetChip(
+                            label: '[LUTE]',
+                            onTap: () {
+                              templateController.text = '[LUTE]';
+                              setDialogState(() {});
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      // Live Preview box
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: context.m3Primary.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: context.m3Primary.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.preview, size: 14, color: context.m3Primary),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Live Output Preview:',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: context.m3Primary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              previewText,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Target App (传入应用) *',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      const SizedBox(height: 6),
+                      DropdownButtonFormField<AndroidAppInfo>(
+                        initialValue: selectedApp,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          isDense: true,
+                        ),
+                        items: allApps.map((app) {
+                          return DropdownMenuItem<AndroidAppInfo>(
+                            value: app,
+                            child: Row(
+                              children: [
+                                _buildSmallAppIcon(app.iconBase64, size: 22),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    app.label,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setDialogState(() {
+                              selectedApp = val;
+                            });
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final name = nameController.text.trim();
+                    final template = templateController.text.trim();
+                    if (name.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Widget Name cannot be empty'),
+                        ),
+                      );
+                      return;
+                    }
+
+                    final widgetId = existingWidget?.id ??
+                        'custom_${DateTime.now().millisecondsSinceEpoch}';
+                    final newWidget = CustomAppWidgetConfig(
+                      id: widgetId,
+                      name: name,
+                      template: template.isNotEmpty ? template : '[LUTE]',
+                      targetAppId: selectedApp.id,
+                      targetAppLabel: selectedApp.label,
+                      targetAppIconBase64: selectedApp.iconBase64,
+                      actionType: selectedApp.actionType,
+                    );
+
+                    final notifier =
+                        ref.read(localAppTabConfigProvider.notifier);
+                    if (isEditing) {
+                      notifier.updateCustomWidget(newWidget);
+                    } else {
+                      notifier.addCustomWidget(newWidget);
+                    }
+
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          isEditing
+                              ? 'Updated widget "$name"'
+                              : 'Created custom widget "$name"',
+                        ),
+                        duration: const Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildPresetChip({
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return ActionChip(
+      label: Text(label, style: const TextStyle(fontSize: 11)),
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      onPressed: onTap,
+    );
+  }
+
   void _showManageAppsSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -954,18 +1839,27 @@ class _AndroidAppLauncherViewState
                     final config = ref.watch(localAppTabConfigProvider);
 
                     return appsAsync.when(
-                      loading: () => const Center(child: CircularProgressIndicator()),
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
                       error: (e, _) => Center(child: Text('Error: $e')),
                       data: (allApps) {
                         final appMap = {for (var a in allApps) a.id: a};
+                        final customWidgetMap = {
+                          for (var w in config.customWidgets) w.id: w
+                        };
 
-                        // Current order of all apps
+                        final allAvailableIds = [
+                          ...allApps.map((a) => a.id),
+                          ...config.customWidgets.map((w) => w.id),
+                        ];
+
                         final orderedIds = List<String>.from(
-                          config.appOrder.where((id) => appMap.containsKey(id)),
+                          config.appOrder
+                              .where((id) => allAvailableIds.contains(id)),
                         );
-                        for (final app in allApps) {
-                          if (!orderedIds.contains(app.id)) {
-                            orderedIds.add(app.id);
+                        for (final id in allAvailableIds) {
+                          if (!orderedIds.contains(id)) {
+                            orderedIds.add(id);
                           }
                         }
 
@@ -992,13 +1886,24 @@ class _AndroidAppLauncherViewState
                                   const Icon(Icons.tune),
                                   const SizedBox(width: 8),
                                   Text(
-                                    'Manage & Reorder Apps',
+                                    'Manage Apps & Widgets',
                                     style: Theme.of(context)
                                         .textTheme
                                         .titleMedium
                                         ?.copyWith(fontWeight: FontWeight.bold),
                                   ),
                                   const Spacer(),
+                                  FilledButton.tonalIcon(
+                                    icon: const Icon(Icons.add, size: 16),
+                                    label: const Text('Add Widget'),
+                                    onPressed: () {
+                                      _showCustomWidgetDialog(
+                                        context,
+                                        allApps: allApps,
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(width: 8),
                                   TextButton(
                                     onPressed: () => Navigator.pop(sheetContext),
                                     child: const Text('Done'),
@@ -1036,8 +1941,8 @@ class _AndroidAppLauncherViewState
                               ),
                               child: Text(
                                 targetIsSentence
-                                    ? 'Configuring Sentence defaults. Drag to reorder. Tap ⭐ to set default app for sentences.'
-                                    : 'Configuring Term defaults. Drag to reorder. Tap ⭐ to set default app for terms.',
+                                    ? 'Drag to reorder. Tap ⭐ to set default app/widget for sentences.'
+                                    : 'Drag to reorder. Tap ⭐ to set default app/widget for terms.',
                                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                       color: Theme.of(context)
                                           .textTheme
@@ -1059,7 +1964,7 @@ class _AndroidAppLauncherViewState
                                         vertical: 4,
                                       ),
                                       child: Text(
-                                        'Visible Apps (${visibleIds.length})',
+                                        'Visible Apps & Widgets (${visibleIds.length})',
                                         style: Theme.of(context)
                                             .textTheme
                                             .labelMedium
@@ -1071,13 +1976,15 @@ class _AndroidAppLauncherViewState
                                     ),
                                     ReorderableListView.builder(
                                       shrinkWrap: true,
-                                      physics: const NeverScrollableScrollPhysics(),
+                                      physics:
+                                          const NeverScrollableScrollPhysics(),
                                       itemCount: visibleIds.length,
                                       onReorder: (oldIndex, newIndex) {
                                         if (oldIndex < newIndex) {
                                           newIndex -= 1;
                                         }
-                                        final item = visibleIds.removeAt(oldIndex);
+                                        final item =
+                                            visibleIds.removeAt(oldIndex);
                                         visibleIds.insert(newIndex, item);
 
                                         final fullNewOrder = [
@@ -1085,17 +1992,32 @@ class _AndroidAppLauncherViewState
                                           ...hiddenIds,
                                         ];
                                         ref
-                                            .read(localAppTabConfigProvider.notifier)
+                                            .read(
+                                              localAppTabConfigProvider
+                                                  .notifier,
+                                            )
                                             .setAppOrder(fullNewOrder);
                                       },
                                       itemBuilder: (context, index) {
-                                        final appId = visibleIds[index];
-                                        final app = appMap[appId]!;
-                                        final isTermDef = app.id ==
+                                        final itemId = visibleIds[index];
+                                        final isCustom =
+                                            customWidgetMap.containsKey(itemId);
+                                        final customWidget =
+                                            customWidgetMap[itemId];
+                                        final app = appMap[itemId];
+
+                                        final label = isCustom
+                                            ? customWidget!.name
+                                            : app?.label ?? itemId;
+                                        final iconBase64 = isCustom
+                                            ? customWidget!.targetAppIconBase64
+                                            : app?.iconBase64;
+
+                                        final isTermDef = itemId ==
                                             config.getDefaultAppId(
                                               isSentence: false,
                                             );
-                                        final isSentenceDef = app.id ==
+                                        final isSentenceDef = itemId ==
                                             config.getDefaultAppId(
                                               isSentence: true,
                                             );
@@ -1117,7 +2039,7 @@ class _AndroidAppLauncherViewState
                                         }
 
                                         return ListTile(
-                                          key: ValueKey(app.id),
+                                          key: ValueKey(itemId),
                                           leading: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
@@ -1129,16 +2051,47 @@ class _AndroidAppLauncherViewState
                                                 ),
                                               ),
                                               const SizedBox(width: 8),
-                                              _buildAppIcon(app.iconBase64),
+                                              _buildSmallAppIcon(iconBase64, size: 28),
                                             ],
                                           ),
-                                          title: Text(
-                                            app.label,
-                                            style: TextStyle(
-                                              fontWeight: isCurrentTargetDef
-                                                  ? FontWeight.bold
-                                                  : FontWeight.normal,
-                                            ),
+                                          title: Row(
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  label,
+                                                  style: TextStyle(
+                                                    fontWeight: isCurrentTargetDef
+                                                        ? FontWeight.bold
+                                                        : FontWeight.normal,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (isCustom) ...[
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                    horizontal: 5,
+                                                    vertical: 1.5,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: context.m3Primary
+                                                        .withValues(alpha: 0.15),
+                                                    borderRadius:
+                                                        BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    'Widget',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      color: context.m3Primary,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
                                           ),
                                           subtitle: defaultBadge != null
                                               ? Text(
@@ -1148,10 +2101,32 @@ class _AndroidAppLauncherViewState
                                                     fontWeight: FontWeight.w600,
                                                   ),
                                                 )
-                                              : null,
+                                              : (isCustom
+                                                  ? Text(
+                                                      'Template: ${customWidget!.template} -> ${customWidget.targetAppLabel}',
+                                                      style: const TextStyle(
+                                                          fontSize: 11),
+                                                    )
+                                                  : null),
                                           trailing: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
+                                              if (isCustom)
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.edit_outlined,
+                                                    size: 18,
+                                                  ),
+                                                  tooltip: 'Edit widget',
+                                                  onPressed: () {
+                                                    _showCustomWidgetDialog(
+                                                      context,
+                                                      allApps: allApps,
+                                                      existingWidget:
+                                                          customWidget,
+                                                    );
+                                                  },
+                                                ),
                                               IconButton(
                                                 icon: Icon(
                                                   isCurrentTargetDef
@@ -1177,7 +2152,7 @@ class _AndroidAppLauncherViewState
                                                       .setDefaultApp(
                                                         isCurrentTargetDef
                                                             ? null
-                                                            : app.id,
+                                                            : itemId,
                                                         isSentence:
                                                             targetIsSentence,
                                                       );
@@ -1187,14 +2162,14 @@ class _AndroidAppLauncherViewState
                                                 icon: const Icon(
                                                   Icons.visibility_outlined,
                                                 ),
-                                                tooltip: 'Hide app',
+                                                tooltip: 'Hide',
                                                 onPressed: () {
                                                   ref
                                                       .read(
                                                         localAppTabConfigProvider
                                                             .notifier,
                                                       )
-                                                      .toggleHideApp(app.id);
+                                                      .toggleHideApp(itemId);
                                                 },
                                               ),
                                             ],
@@ -1211,7 +2186,7 @@ class _AndroidAppLauncherViewState
                                         vertical: 4,
                                       ),
                                       child: Text(
-                                        'Hidden Apps (${hiddenIds.length})',
+                                        'Hidden (${hiddenIds.length})',
                                         style: Theme.of(context)
                                             .textTheme
                                             .labelMedium
@@ -1221,15 +2196,28 @@ class _AndroidAppLauncherViewState
                                             ),
                                       ),
                                     ),
-                                    ...hiddenIds.map((appId) {
-                                      final app = appMap[appId]!;
+                                    ...hiddenIds.map((itemId) {
+                                      final isCustom =
+                                          customWidgetMap.containsKey(itemId);
+                                      final customWidget =
+                                          customWidgetMap[itemId];
+                                      final app = appMap[itemId];
+                                      final label = isCustom
+                                          ? customWidget!.name
+                                          : app?.label ?? itemId;
+                                      final iconBase64 = isCustom
+                                          ? customWidget!.targetAppIconBase64
+                                          : app?.iconBase64;
+
                                       return ListTile(
                                         leading: Opacity(
                                           opacity: 0.5,
-                                          child: _buildAppIcon(app.iconBase64),
+                                          child: _buildSmallAppIcon(
+                                              iconBase64,
+                                              size: 28),
                                         ),
                                         title: Text(
-                                          app.label,
+                                          label,
                                           style: const TextStyle(
                                             color: Colors.grey,
                                           ),
@@ -1246,7 +2234,7 @@ class _AndroidAppLauncherViewState
                                                   localAppTabConfigProvider
                                                       .notifier,
                                                 )
-                                                .toggleHideApp(app.id);
+                                                .toggleHideApp(itemId);
                                           },
                                         ),
                                       );
@@ -1325,13 +2313,13 @@ class _AndroidAppLauncherViewState
             ),
             const SizedBox(height: 12),
             Text(
-              'All Apps are Hidden',
+              'All Apps & Widgets are Hidden',
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
               icon: const Icon(Icons.tune),
-              label: const Text('Manage Apps'),
+              label: const Text('Manage Apps & Widgets'),
               onPressed: () => _showManageAppsSheet(context),
             ),
           ],
