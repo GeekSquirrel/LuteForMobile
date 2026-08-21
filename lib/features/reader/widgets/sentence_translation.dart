@@ -64,6 +64,7 @@ class _SentenceTranslationWidgetState
   bool _isPreloading = false;
   bool _isOriginalCollapsed = true;
   int _popupHeight = DictionaryService.defaultPopupHeight;
+  bool _hasAutoInvokedLocalApp = false;
 
   @override
   void initState() {
@@ -72,6 +73,14 @@ class _SentenceTranslationWidgetState
     _loadPopupHeight();
     _loadStartCollapsed();
     _loadDictionaries();
+  }
+
+  @override
+  void didUpdateWidget(SentenceTranslationWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sentence != widget.sentence) {
+      _hasAutoInvokedLocalApp = false;
+    }
   }
 
   Future<void> _loadPopupHeight() async {
@@ -361,8 +370,12 @@ class _SentenceTranslationWidgetState
 
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final targetHeight = screenHeight * (2 / 3);
+
     if (!_hasLoaded) {
       return Container(
+        height: targetHeight,
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: context.appColorScheme.background.background,
@@ -374,20 +387,20 @@ class _SentenceTranslationWidgetState
 
     if (_dictionaries.isEmpty) {
       return Container(
+        height: targetHeight,
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: context.appColorScheme.background.background,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildHeader(context),
             const SizedBox(height: 16),
             _buildOriginalSentence(context),
             const SizedBox(height: 12),
-            _buildNoDictionariesState(context),
+            Expanded(child: _buildNoDictionariesState(context)),
             const SizedBox(height: 8),
             _buildCloseButton(context),
           ],
@@ -396,21 +409,20 @@ class _SentenceTranslationWidgetState
     }
 
     return Container(
+      height: targetHeight,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: context.appColorScheme.background.background,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildHeader(context),
           const SizedBox(height: 16),
           _buildOriginalSentence(context),
           const SizedBox(height: 8),
-          SizedBox(
-            height: _popupHeight.toDouble(),
+          Expanded(
             child: _buildDictionaryContent(context),
           ),
           const SizedBox(height: 8),
@@ -706,6 +718,14 @@ class _SentenceTranslationWidgetState
             text: widget.sentence,
             isSentence: true,
             isActive: _currentPage == index,
+            autoInvoke: !_hasAutoInvokedLocalApp,
+            onAutoInvoked: () {
+              if (mounted) {
+                setState(() {
+                  _hasAutoInvokedLocalApp = true;
+                });
+              }
+            },
             onOpenTabReorder: _openTabReorderDialog,
           );
         }

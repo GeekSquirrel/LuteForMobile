@@ -645,17 +645,18 @@ class _AndroidAppLauncherViewState
   ) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final crossAxisCount = (constraints.maxWidth / 96).clamp(3, 8).toInt();
+        // Use 4 columns on mobile for a compact, neat launcher layout
+        final crossAxisCount = (constraints.maxWidth / 78).clamp(4, 8).toInt();
         final currentDefaultId =
             config.getDefaultAppId(isSentence: widget.isSentence);
 
         return GridView.builder(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 0.82,
+            crossAxisSpacing: 6,
+            mainAxisSpacing: 6,
+            childAspectRatio: 0.85,
           ),
           itemCount: visibleApps.length,
           itemBuilder: (context, index) {
@@ -682,24 +683,24 @@ class _AndroidAppLauncherViewState
           ref.read(androidAppServiceProvider).launchApp(app, widget.text);
         },
         onLongPress: () => _showAppOptionsSheet(context, app, config),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: isDefault
                   ? context.m3Primary
                   : context.appColorScheme.border.dividerColor.withValues(
-                      alpha: 0.4,
+                      alpha: 0.35,
                     ),
-              width: isDefault ? 2 : 1,
+              width: isDefault ? 1.5 : 1,
             ),
             color: isDefault
                 ? context.m3Primary.withValues(alpha: 0.08)
                 : context.appColorScheme.background.surfaceContainerHighest
                     .withValues(alpha: 0.25),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 5),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -709,27 +710,28 @@ class _AndroidAppLauncherViewState
                   _buildAppIcon(app.iconBase64),
                   if (isDefault)
                     Positioned(
-                      right: -6,
-                      top: -6,
+                      right: -4,
+                      top: -4,
                       child: Container(
-                        padding: const EdgeInsets.all(2),
+                        padding: const EdgeInsets.all(1.5),
                         decoration: BoxDecoration(
                           color: context.m3Primary,
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
                           Icons.star,
-                          size: 12,
+                          size: 10,
                           color: Colors.white,
                         ),
                       ),
                     ),
                 ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
               Text(
                 app.label,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontSize: 10.5,
                       fontWeight:
                           isDefault ? FontWeight.bold : FontWeight.w500,
                       color: isDefault
@@ -752,11 +754,11 @@ class _AndroidAppLauncherViewState
       try {
         final Uint8List bytes = base64Decode(iconBase64);
         return ClipRRect(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(7),
           child: Image.memory(
             bytes,
-            width: 44,
-            height: 44,
+            width: 36,
+            height: 36,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) =>
                 _buildFallbackIcon(),
@@ -771,13 +773,13 @@ class _AndroidAppLauncherViewState
 
   Widget _buildFallbackIcon() {
     return Container(
-      width: 44,
-      height: 44,
+      width: 36,
+      height: 36,
       decoration: BoxDecoration(
         color: context.m3Primary.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(7),
       ),
-      child: Icon(Icons.open_in_new, size: 22, color: context.m3Primary),
+      child: Icon(Icons.open_in_new, size: 18, color: context.m3Primary),
     );
   }
 
