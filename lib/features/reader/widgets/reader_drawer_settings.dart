@@ -87,338 +87,342 @@ class ReaderDrawerSettings extends ConsumerWidget {
     }
     final weightIndexDouble = weightIndex.toDouble();
 
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 16),
-          ExpansionTile(
-            title: Text(
-              'Text Formatting',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            initiallyExpanded: false,
-            children: [
-              const SizedBox(height: 8),
-              _buildTextSizeSlider(context, ref, textSettings),
-              const SizedBox(height: 16),
-              _buildLineSpacingSlider(context, ref, textSettings),
-              const SizedBox(height: 16),
-              _buildFontDropdown(context, ref, textSettings),
-              const SizedBox(height: 16),
-              _buildFontWeightSlider(
-                context,
-                ref,
-                textSettings,
-                weightIndexDouble,
-                availableWeights,
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 16),
+            ExpansionTile(
+              title: Text(
+                'Text Formatting',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-              const SizedBox(height: 16),
-              _buildItalicToggle(context, ref, textSettings),
-              const SizedBox(height: 16),
+              initiallyExpanded: false,
+              children: [
+                const SizedBox(height: 8),
+                _buildTextSizeSlider(context, ref, textSettings),
+                const SizedBox(height: 16),
+                _buildLineSpacingSlider(context, ref, textSettings),
+                const SizedBox(height: 16),
+                _buildFontDropdown(context, ref, textSettings),
+                const SizedBox(height: 16),
+                _buildFontWeightSlider(
+                  context,
+                  ref,
+                  textSettings,
+                  weightIndexDouble,
+                  availableWeights,
+                ),
+                const SizedBox(height: 16),
+                _buildItalicToggle(context, ref, textSettings),
+                const SizedBox(height: 16),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildFullscreenToggle(context, ref, textSettings),
+            if (currentRoute != 'sentence-reader') ...[
+              const SizedBox(height: 24),
+              _buildWordGlowToggle(context, ref),
             ],
-          ),
-          const SizedBox(height: 16),
-          _buildFullscreenToggle(context, ref, textSettings),
-          if (currentRoute != 'sentence-reader') ...[
             const SizedBox(height: 24),
-            _buildWordGlowToggle(context, ref),
-          ],
-          const SizedBox(height: 24),
-          _buildTooltipImagesToggle(context, ref, termFormSettings),
-          const SizedBox(height: 24),
-          if (currentRoute != 'sentence-reader')
-            _buildPageNumbersToggle(context, ref, settings),
-          const SizedBox(height: 24),
-          Consumer(
-            builder: (context, ref, _) {
-              final reader = ref.watch(readerProvider);
-              if (reader.pageData?.hasAudio == true) {
-                return Column(
-                  children: [_buildAudioPlayerToggle(context, ref, settings)],
-                );
-              }
-              return const SizedBox.shrink();
-            },
-          ),
-          const SizedBox(height: 24),
-          // Show tooltip cache management when enabled
-          Consumer(
-            builder: (context, ref, _) {
-              final settings = ref.watch(settingsProvider);
-              if (settings.enableTooltipCaching) {
-                // Refresh cache stats when this section is built
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  ref.invalidate(cacheStatsProvider);
-                });
+            _buildTooltipImagesToggle(context, ref, termFormSettings),
+            const SizedBox(height: 24),
+            if (currentRoute != 'sentence-reader')
+              _buildPageNumbersToggle(context, ref, settings),
+            const SizedBox(height: 24),
+            Consumer(
+              builder: (context, ref, _) {
+                final reader = ref.watch(readerProvider);
+                if (reader.pageData?.hasAudio == true) {
+                  return Column(
+                    children: [_buildAudioPlayerToggle(context, ref, settings)],
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+            const SizedBox(height: 24),
+            // Show tooltip cache management when enabled
+            Consumer(
+              builder: (context, ref, _) {
+                final settings = ref.watch(settingsProvider);
+                if (settings.enableTooltipCaching) {
+                  // Refresh cache stats when this section is built
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    ref.invalidate(cacheStatsProvider);
+                  });
 
-                return Column(
-                  children: [
-                    const SizedBox(height: 16),
-                    Consumer(
-                      builder: (context, ref, _) {
-                        final cacheStats = ref.watch(cacheStatsProvider);
+                  return Column(
+                    children: [
+                      const SizedBox(height: 16),
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final cacheStats = ref.watch(cacheStatsProvider);
 
-                        return cacheStats.when(
-                          data: (stats) {
-                            int cacheCount = stats['validEntries'] ?? 0;
+                          return cacheStats.when(
+                            data: (stats) {
+                              int cacheCount = stats['validEntries'] ?? 0;
 
-                            return OutlinedButton.icon(
-                              onPressed: () async {
-                                // Get the tooltip cache service
-                                final tooltipCacheService = ref.read(
-                                  tooltipCacheServiceProvider,
-                                );
-
-                                // Clear the cache
-                                final success = await tooltipCacheService
-                                    .clearAllCache();
-
-                                if (success && context.mounted) {
-                                  // Refresh the cache stats after clearing
-                                  ref.invalidate(cacheStatsProvider);
-
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        'Tooltip cache cleared successfully',
-                                      ),
-                                    ),
+                              return OutlinedButton.icon(
+                                onPressed: () async {
+                                  // Get the tooltip cache service
+                                  final tooltipCacheService = ref.read(
+                                    tooltipCacheServiceProvider,
                                   );
-                                } else if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        'Failed to clear tooltip cache',
+
+                                  // Clear the cache
+                                  final success = await tooltipCacheService
+                                      .clearAllCache();
+
+                                  if (success && context.mounted) {
+                                    // Refresh the cache stats after clearing
+                                    ref.invalidate(cacheStatsProvider);
+
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Tooltip cache cleared successfully',
+                                        ),
                                       ),
-                                    ),
-                                  );
-                                }
-                              },
+                                    );
+                                  } else if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Failed to clear tooltip cache',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
+                                icon: const Icon(Icons.refresh),
+                                label: Text(
+                                  'Refresh Tooltip Cache ($cacheCount)',
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size(double.infinity, 40),
+                                ),
+                              );
+                            },
+                            loading: () => OutlinedButton.icon(
+                              onPressed: null,
                               icon: const Icon(Icons.refresh),
-                              label: Text(
-                                'Refresh Tooltip Cache ($cacheCount)',
+                              label: const Text(
+                                'Refresh Tooltip Cache (Loading...)',
                               ),
                               style: OutlinedButton.styleFrom(
                                 minimumSize: const Size(double.infinity, 40),
                               ),
-                            );
-                          },
-                          loading: () => OutlinedButton.icon(
-                            onPressed: null,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text(
-                              'Refresh Tooltip Cache (Loading...)',
                             ),
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(double.infinity, 40),
+                            error: (error, stack) => OutlinedButton.icon(
+                              onPressed: null,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Refresh Tooltip Cache (Error)'),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(double.infinity, 40),
+                              ),
                             ),
-                          ),
-                          error: (error, stack) => OutlinedButton.icon(
-                            onPressed: null,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Refresh Tooltip Cache (Error)'),
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(double.infinity, 40),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                );
-              }
-              return const SizedBox.shrink();
-            },
-          ),
-          const SizedBox(height: 24),
-          Consumer(
-            builder: (context, ref, _) {
-              final error = ref.watch(sentenceReaderProvider).errorMessage;
-
-              if (error != null) {
-                return Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: context.error.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
+                          );
+                        },
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.error_outline, color: context.error),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Sentence Reader Error',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: context.error,
-                                  ),
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close),
-                                onPressed: () {
-                                  ref
-                                      .read(sentenceReaderProvider.notifier)
-                                      .clearError();
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            error,
-                            style: TextStyle(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onErrorContainer,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: () async {
-                                    final reader = ref.read(readerProvider);
-                                    if (reader.pageData != null) {
-                                      await ref
-                                          .read(sentenceReaderProvider.notifier)
-                                          .parseSentencesForPage(
-                                            _getLangId(reader),
-                                            initialIndex: 0,
-                                          );
-                                    }
-                                  },
-                                  icon: const Icon(Icons.refresh),
-                                  label: const Text('Retry'),
-                                  style: ElevatedButton.styleFrom(
-                                    minimumSize: const Size(
-                                      double.infinity,
-                                      36,
+                    ],
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+            const SizedBox(height: 24),
+            Consumer(
+              builder: (context, ref, _) {
+                final error = ref.watch(sentenceReaderProvider).errorMessage;
+
+                if (error != null) {
+                  return Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: context.error.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.error_outline, color: context.error),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Sentence Reader Error',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: context.error,
                                     ),
                                   ),
                                 ),
+                                IconButton(
+                                  icon: const Icon(Icons.close),
+                                  onPressed: () {
+                                    ref
+                                        .read(sentenceReaderProvider.notifier)
+                                        .clearError();
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              error,
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onErrorContainer,
                               ),
-                            ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () async {
+                                      final reader = ref.read(readerProvider);
+                                      if (reader.pageData != null) {
+                                        await ref
+                                            .read(sentenceReaderProvider.notifier)
+                                            .parseSentencesForPage(
+                                              _getLangId(reader),
+                                              initialIndex: 0,
+                                            );
+                                      }
+                                    },
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('Retry'),
+                                    style: ElevatedButton.styleFrom(
+                                      minimumSize: const Size(
+                                        double.infinity,
+                                        36,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
+                        onPressed: () async {
+                          await ref
+                              .read(sentenceReaderProvider.notifier)
+                              .triggerFlushAndRebuild();
+                          if (context.mounted) {
+                            Navigator.of(context).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Cache flushed and rebuilt!'),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.view_headline),
+                        label: const Text('Flush Cache & Rebuild'),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 48),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Show Known Terms',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          Transform.scale(
+                            scale: 0.8,
+                            child: Switch(
+                              value: settings.showKnownTermsInSentenceReader,
+                              onChanged: (value) {
+                                ref
+                                    .read(settingsProvider.notifier)
+                                    .updateShowKnownTermsInSentenceReader(value);
+                              },
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 8),
+                    ],
+                  );
+                }
+
+                return Column(
+                  children: [
                     ElevatedButton.icon(
                       onPressed: () async {
-                        await ref
-                            .read(sentenceReaderProvider.notifier)
-                            .triggerFlushAndRebuild();
-                        if (context.mounted) {
-                          Navigator.of(context).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Cache flushed and rebuilt!'),
-                            ),
+                        if (currentRoute == 'sentence-reader') {
+                          await ref
+                              .read(sentenceReaderProvider.notifier)
+                              .triggerFlushAndRebuild();
+                          if (context.mounted) {
+                            Navigator.of(context).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Cache flushed and rebuilt!'),
+                              ),
+                            );
+                          }
+                        } else {
+                          ref.read(navigationProvider).navigateToScreen('reader');
+                          Future.microtask(
+                            () => ref
+                                .read(navigationProvider)
+                                .navigateToScreen('sentence-reader'),
                           );
+                          Navigator.of(context).pop();
                         }
                       },
                       icon: const Icon(Icons.view_headline),
-                      label: const Text('Flush Cache & Rebuild'),
+                      label: currentRoute == 'sentence-reader'
+                          ? const Text('Flush Cache & Rebuild')
+                          : const Text('Open Sentence Reader'),
                       style: ElevatedButton.styleFrom(
                         minimumSize: const Size(double.infinity, 48),
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        const Text(
-                          'Show Known Terms',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        const Spacer(),
-                        Transform.scale(
-                          scale: 0.8,
-                          child: Switch(
-                            value: settings.showKnownTermsInSentenceReader,
-                            onChanged: (value) {
-                              ref
-                                  .read(settingsProvider.notifier)
-                                  .updateShowKnownTermsInSentenceReader(value);
-                            },
+                    if (currentRoute == 'sentence-reader')
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Show Known Terms',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                          Transform.scale(
+                            scale: 0.8,
+                            child: Switch(
+                              value: settings.showKnownTermsInSentenceReader,
+                              onChanged: (value) {
+                                ref
+                                    .read(settingsProvider.notifier)
+                                    .updateShowKnownTermsInSentenceReader(value);
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 );
-              }
-
-              return Column(
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: () async {
-                      if (currentRoute == 'sentence-reader') {
-                        await ref
-                            .read(sentenceReaderProvider.notifier)
-                            .triggerFlushAndRebuild();
-                        if (context.mounted) {
-                          Navigator.of(context).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Cache flushed and rebuilt!'),
-                            ),
-                          );
-                        }
-                      } else {
-                        ref.read(navigationProvider).navigateToScreen('reader');
-                        Future.microtask(
-                          () => ref
-                              .read(navigationProvider)
-                              .navigateToScreen('sentence-reader'),
-                        );
-                        Navigator.of(context).pop();
-                      }
-                    },
-                    icon: const Icon(Icons.view_headline),
-                    label: currentRoute == 'sentence-reader'
-                        ? const Text('Flush Cache & Rebuild')
-                        : const Text('Open Sentence Reader'),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 48),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (currentRoute == 'sentence-reader')
-                    Row(
-                      children: [
-                        const Text(
-                          'Show Known Terms',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        const Spacer(),
-                        Transform.scale(
-                          scale: 0.8,
-                          child: Switch(
-                            value: settings.showKnownTermsInSentenceReader,
-                            onChanged: (value) {
-                              ref
-                                  .read(settingsProvider.notifier)
-                                  .updateShowKnownTermsInSentenceReader(value);
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              );
-            },
-          ),
-        ],
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -520,24 +524,32 @@ class ReaderDrawerSettings extends ConsumerWidget {
     double weightIndex,
     List<FontWeight> availableWeights,
   ) {
+    final maxVal = (availableWeights.length - 1).toDouble();
+    final safeWeightIndex = weightIndex.clamp(0.0, maxVal > 0 ? maxVal : 0.0);
+    final divisions = availableWeights.length > 1 ? availableWeights.length - 1 : 1;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Weight: ${_getWeightLabel(availableWeights[weightIndex.toInt()])}',
+          'Weight: ${_getWeightLabel(availableWeights[safeWeightIndex.toInt()])}',
           style: Theme.of(context).textTheme.labelLarge,
         ),
         Slider(
-          value: weightIndex,
+          value: safeWeightIndex,
           min: 0,
-          max: availableWeights.length - 1,
-          divisions: availableWeights.length - 1,
-          label: _getWeightLabel(availableWeights[weightIndex.toInt()]),
-          onChanged: (value) {
-            ref
-                .read(textFormattingSettingsProvider.notifier)
-                .updateFontWeight(_getWeightFromIndex(value, availableWeights));
-          },
+          max: maxVal > 0 ? maxVal : 1,
+          divisions: divisions,
+          label: _getWeightLabel(availableWeights[safeWeightIndex.toInt()]),
+          onChanged: maxVal > 0
+              ? (value) {
+                  ref
+                      .read(textFormattingSettingsProvider.notifier)
+                      .updateFontWeight(
+                        _getWeightFromIndex(value, availableWeights),
+                      );
+                }
+              : null,
         ),
       ],
     );
@@ -550,8 +562,9 @@ class ReaderDrawerSettings extends ConsumerWidget {
   ) {
     return Row(
       children: [
-        const Text('Italic', style: TextStyle(fontWeight: FontWeight.bold)),
-        const Spacer(),
+        const Expanded(
+          child: Text('Italic', style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
         Transform.scale(
           scale: 0.8,
           child: Switch(
@@ -574,11 +587,12 @@ class ReaderDrawerSettings extends ConsumerWidget {
   ) {
     return Row(
       children: [
-        const Text(
-          'Fullscreen Mode',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        const Expanded(
+          child: Text(
+            'Fullscreen Mode',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
-        const Spacer(),
         Transform.scale(
           scale: 0.8,
           child: Switch(
@@ -601,11 +615,12 @@ class ReaderDrawerSettings extends ConsumerWidget {
   ) {
     return Row(
       children: [
-        const Text(
-          'Show Audio Player',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        const Expanded(
+          child: Text(
+            'Show Audio Player',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
-        const Spacer(),
         Transform.scale(
           scale: 0.8,
           child: Switch(
@@ -623,8 +638,9 @@ class ReaderDrawerSettings extends ConsumerWidget {
     final termFormSettings = ref.watch(termFormSettingsProvider);
     return Row(
       children: [
-        const Text('Word Glow', style: TextStyle(fontWeight: FontWeight.bold)),
-        const Spacer(),
+        const Expanded(
+          child: Text('Word Glow', style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
         Transform.scale(
           scale: 0.8,
           child: Switch(
@@ -675,11 +691,12 @@ class ReaderDrawerSettings extends ConsumerWidget {
   ) {
     return Row(
       children: [
-        const Text(
-          'Show Page Numbers',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        const Expanded(
+          child: Text(
+            'Show Page Numbers',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
-        const Spacer(),
         Transform.scale(
           scale: 0.8,
           child: Switch(

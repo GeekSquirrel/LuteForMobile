@@ -44,69 +44,72 @@ class BooksDrawerSettings extends ConsumerWidget {
     final settings = ref.watch(settingsProvider);
     final languagesState = ref.watch(languageNamesProvider);
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ExpansionTile(
-            title: const Text(
-              'Book Settings',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            initiallyExpanded: false,
-            children: [
-              const SizedBox(height: 8),
-              Text(
-                'Display Options',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ExpansionTile(
+              title: const Text(
+                'Book Settings',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  const Text(
-                    'Show Tags',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const Spacer(),
-                  Transform.scale(
-                    scale: 0.8,
-                    child: Switch(
-                      value: settings.showTags,
-                      onChanged: (value) async {
-                        ref
-                            .read(settingsProvider.notifier)
-                            .updateShowTags(value);
-                        await ref.read(booksProvider.notifier).loadBooks();
-                      },
+              initiallyExpanded: false,
+              children: [
+                const SizedBox(height: 8),
+                Text(
+                  'Display Options',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Show Tags',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  const Text(
-                    'Show Last Read',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const Spacer(),
-                  Transform.scale(
-                    scale: 0.8,
-                    child: Switch(
-                      value: settings.showLastRead,
-                      onChanged: (value) async {
-                        ref
-                            .read(settingsProvider.notifier)
-                            .updateShowLastRead(value);
-                        await ref.read(booksProvider.notifier).loadBooks();
-                      },
+                    Transform.scale(
+                      scale: 0.8,
+                      child: Switch(
+                        value: settings.showTags,
+                        onChanged: (value) async {
+                          ref
+                              .read(settingsProvider.notifier)
+                              .updateShowTags(value);
+                          await ref.read(booksProvider.notifier).loadBooks();
+                        },
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
+                  ],
+                ),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Show Last Read',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    Transform.scale(
+                      scale: 0.8,
+                      child: Switch(
+                        value: settings.showLastRead,
+                        onChanged: (value) async {
+                          ref
+                              .read(settingsProvider.notifier)
+                              .updateShowLastRead(value);
+                          await ref.read(booksProvider.notifier).loadBooks();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
               Text(
                 'Filter by Language',
                 style: Theme.of(
@@ -183,7 +186,7 @@ class BooksDrawerSettings extends ConsumerWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     ),
-                    error: (_, __) => _SampleSizeTextField(
+                    error: (_, _) => _SampleSizeTextField(
                       initialValue: '15',
                       settingKey: 'stats_calc_sample_size',
                     ),
@@ -226,8 +229,9 @@ class BooksDrawerSettings extends ConsumerWidget {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class _BatchSizeTextField extends ConsumerStatefulWidget {

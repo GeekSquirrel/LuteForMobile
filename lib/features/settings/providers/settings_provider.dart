@@ -74,7 +74,7 @@ class SettingsNotifier extends Notifier<Settings> {
   @override
   Settings build() {
     _loadSettings();
-    return state;
+    return Settings.defaultSettings();
   }
 
   Future<void> _loadSettings() async {
