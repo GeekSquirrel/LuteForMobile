@@ -1311,18 +1311,9 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
             },
             child: StatefulBuilder(
               builder: (context, setModalState) {
-                return GestureDetector(
-                  onVerticalDragEnd: isDictionaryOpen
-                      ? null
-                      : (details) {
-                          if (details.primaryVelocity != null &&
-                              details.primaryVelocity! > 500) {
-                            Navigator.of(context).pop();
-                          }
-                        },
-                  child: TermFormWidget(
-                    termForm: _currentTermForm ?? termForm,
-                    sentence: sentence,
+                return TermFormWidget(
+                  termForm: _currentTermForm ?? termForm,
+                  sentence: sentence,
                     initialReaderStatus: initialReaderStatus,
                     contentService: repository.contentService,
                     dictionaryService: DictionaryService(
@@ -1414,9 +1405,8 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                             .loadStats(langId);
                       }
                     },
-                  ),
-                );
-              },
+                  );
+                },
             ),
           ),
         );
@@ -1475,18 +1465,9 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
             },
             child: StatefulBuilder(
               builder: (context, setModalState) {
-                return GestureDetector(
-                  onVerticalDragEnd: isDictionaryOpen
-                      ? null
-                      : (details) {
-                          if (details.primaryVelocity != null &&
-                              details.primaryVelocity! > 500) {
-                            Navigator.of(context).pop();
-                          }
-                        },
-                  child: TermFormWidget(
-                    termForm: currentForm,
-                    sentence: sentence,
+                return TermFormWidget(
+                  termForm: currentForm,
+                  sentence: sentence,
                     initialReaderStatus: null,
                     contentService: repository.contentService,
                     dictionaryService: DictionaryService(
@@ -1572,9 +1553,8 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                             .loadStats(langId);
                       }
                     },
-                  ),
-                );
-              },
+                  );
+                },
             ),
           ),
         );
@@ -1594,16 +1574,23 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
         vsync: Navigator.of(context),
       ),
       builder: (context) {
-        return SentenceTranslationWidget(
-          sentence: sentence,
-          translation: null,
-          translationProvider: 'local',
-          languageId: languageId,
-          dictionaryService: DictionaryService(
-            fetchLanguageSettingsHtml: (langId) =>
-                repository.contentService.getLanguageSettingsHtml(langId),
+        return AnimatedPadding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
-          onClose: () => Navigator.of(context).pop(),
+          duration: const Duration(milliseconds: 100),
+          curve: Curves.easeOut,
+          child: SentenceTranslationWidget(
+            sentence: sentence,
+            translation: null,
+            translationProvider: 'local',
+            languageId: languageId,
+            dictionaryService: DictionaryService(
+              fetchLanguageSettingsHtml: (langId) =>
+                  repository.contentService.getLanguageSettingsHtml(langId),
+            ),
+            onClose: () => Navigator.of(context).pop(),
+          ),
         );
       },
     );

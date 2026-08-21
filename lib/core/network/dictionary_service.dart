@@ -11,6 +11,7 @@ class DictionarySource {
   final bool isAI;
   final AIType? aiType;
   final bool isAndroidApp;
+  final bool isImages;
 
   const DictionarySource({
     required this.name,
@@ -18,6 +19,7 @@ class DictionarySource {
     this.isAI = false,
     this.aiType,
     this.isAndroidApp = false,
+    this.isImages = false,
   });
 
   factory DictionarySource.fromJson(Map<String, dynamic> json) {
@@ -32,6 +34,7 @@ class DictionarySource {
             )
           : null,
       isAndroidApp: json['isAndroidApp'] as bool? ?? false,
+      isImages: json['isImages'] as bool? ?? false,
     );
   }
 
@@ -42,6 +45,7 @@ class DictionarySource {
       'isAI': isAI,
       'aiType': aiType?.toString(),
       'isAndroidApp': isAndroidApp,
+      'isImages': isImages,
     };
   }
 }
@@ -230,6 +234,16 @@ class DictionaryService {
   Future<void> setSentenceTranslationPopupHeight(int height) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('sentence_translation_popup_height', height);
+  }
+
+  Future<int> getTermFormPopupHeight() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('term_form_popup_height') ?? defaultPopupHeight;
+  }
+
+  Future<void> setTermFormPopupHeight(int height) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('term_form_popup_height', height);
   }
 
   Future<bool> getSentenceTranslationStartCollapsed() async {

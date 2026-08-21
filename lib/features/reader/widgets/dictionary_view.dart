@@ -943,7 +943,6 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
             text: widget.term,
             isSentence: false,
             isActive: _currentPage == index,
-            onOpenTabReorder: _openTabReorderDialog,
           );
         }
         return _buildWebViewPage(context, dict, index);

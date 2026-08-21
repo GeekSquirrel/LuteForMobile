@@ -45,6 +45,9 @@ class LocalAppTabConfigNotifier extends Notifier<LocalAppTabConfig> {
     await updateConfig(updated);
   }
 
+  Future<void> setInstantApp(String? appId, {bool isSentence = false}) =>
+      setDefaultApp(appId, isSentence: isSentence);
+
   Future<void> toggleHideApp(String appId, {bool isSentence = false}) async {
     final currentHidden =
         List<String>.from(state.getHiddenAppIds(isSentence: isSentence));

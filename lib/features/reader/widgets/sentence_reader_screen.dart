@@ -1536,18 +1536,9 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
             },
             child: StatefulBuilder(
               builder: (context, setModalState) {
-                return GestureDetector(
-                  onVerticalDragEnd: _isDictionaryOpen
-                      ? null
-                      : (details) {
-                          if (details.primaryVelocity != null &&
-                              details.primaryVelocity! > 500) {
-                            Navigator.of(context).pop();
-                          }
-                        },
-                  child: TermFormWidget(
-                    termForm: _currentTermForm ?? termForm,
-                    sentence: sentence,
+                return TermFormWidget(
+                  termForm: _currentTermForm ?? termForm,
+                  sentence: sentence,
                     initialReaderStatus: initialReaderStatus,
                     contentService: repository.contentService,
                     dictionaryService: DictionaryService(
@@ -1646,9 +1637,8 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
                             .loadStats(langId);
                       }
                     },
-                  ),
-                );
-              },
+                  );
+                },
             ),
           ),
         );
@@ -1713,18 +1703,9 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
             },
             child: StatefulBuilder(
               builder: (context, setModalState) {
-                return GestureDetector(
-                  onVerticalDragEnd: _isDictionaryOpen
-                      ? null
-                      : (details) {
-                          if (details.primaryVelocity != null &&
-                              details.primaryVelocity! > 500) {
-                            Navigator.of(context).pop();
-                          }
-                        },
-                  child: TermFormWidget(
-                    termForm: currentForm,
-                    sentence: sentence,
+                return TermFormWidget(
+                  termForm: currentForm,
+                  sentence: sentence,
                     initialReaderStatus: null,
                     contentService: repository.contentService,
                     dictionaryService: DictionaryService(
@@ -1842,9 +1823,8 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
                             .loadStats(langId);
                       }
                     },
-                  ),
-                );
-              },
+                  );
+                },
             ),
           ),
         );
@@ -1860,16 +1840,23 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
       isScrollControlled: true,
       backgroundColor: const Color(0x00000000),
       builder: (context) {
-        return SentenceTranslationWidget(
-          sentence: sentence,
-          translation: null,
-          translationProvider: 'local',
-          languageId: languageId,
-          dictionaryService: DictionaryService(
-            fetchLanguageSettingsHtml: (langId) =>
-                repository.contentService.getLanguageSettingsHtml(langId),
+        return AnimatedPadding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
-          onClose: () => Navigator.of(context).pop(),
+          duration: const Duration(milliseconds: 100),
+          curve: Curves.easeOut,
+          child: SentenceTranslationWidget(
+            sentence: sentence,
+            translation: null,
+            translationProvider: 'local',
+            languageId: languageId,
+            dictionaryService: DictionaryService(
+              fetchLanguageSettingsHtml: (langId) =>
+                  repository.contentService.getLanguageSettingsHtml(langId),
+            ),
+            onClose: () => Navigator.of(context).pop(),
+          ),
         );
       },
     );

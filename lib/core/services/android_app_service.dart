@@ -7,6 +7,7 @@ import '../models/android_app_info.dart';
 
 class AndroidAppService {
   static const String localAppsTabId = '__android_local_apps__';
+  static const String imagesTabId = '__images_tab__';
   static const String channelName = 'com.schlick7.luteformobile/android_apps';
   static const String configPrefsKey = 'local_android_app_config';
 
@@ -143,13 +144,16 @@ class AndroidAppService {
     await prefs.setStringList(_tabOrderKey(languageId, isSentence), tabOrder);
   }
 
-  /// Sorts items based on saved tab order, inserting the local app item if enabled.
+  /// Sorts items based on saved tab order, inserting local app / images items if enabled.
   List<T> applyTabOrder<T>({
     required List<T> originalItems,
     required String Function(T) getId,
     required List<String> savedOrder,
     T? localAppItem,
     bool includeLocalApp = true,
+    T? imagesItem,
+    bool includeImages = true,
+    Map<String, T>? extraItems,
   }) {
     final allAvailableMap = <String, T>{};
     for (final item in originalItems) {
@@ -160,11 +164,29 @@ class AndroidAppService {
       allAvailableMap[localAppsTabId] = localAppItem;
     }
 
+    if (includeImages && imagesItem != null) {
+      allAvailableMap[imagesTabId] = imagesItem;
+    }
+
+    if (extraItems != null) {
+      allAvailableMap.addAll(extraItems);
+    }
+
     if (savedOrder.isEmpty) {
-      // Default: original items followed by local app item
+      // Default: original items followed by extra/special items
       final result = List<T>.from(originalItems);
+      if (includeImages && imagesItem != null) {
+        result.add(imagesItem);
+      }
       if (includeLocalApp && localAppItem != null) {
         result.add(localAppItem);
+      }
+      if (extraItems != null) {
+        for (final entry in extraItems.entries) {
+          if (!result.contains(entry.value)) {
+            result.add(entry.value);
+          }
+        }
       }
       return result;
     }

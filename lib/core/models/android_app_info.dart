@@ -93,7 +93,7 @@ class AndroidAppInfo {
 class CustomAppWidgetConfig {
   final String id; // unique ID, e.g. "custom_1724213890123"
   final String name; // widget label
-  final String template; // e.g. "翻译 [LUTE]"
+  final String template; // e.g. "翻译 [Text]"
   final String targetAppId; // packageName/activityName
   final String targetAppLabel;
   final String? targetAppIconBase64;
@@ -111,9 +111,12 @@ class CustomAppWidgetConfig {
     this.colorValue,
   });
 
-  /// Replaces the placeholder [LUTE] with the given text.
-  /// If the template does not contain [LUTE], appends the text after template.
+  /// Replaces the placeholder [Text] (or legacy [LUTE]) with the given text.
+  /// If the template does not contain [Text] or [LUTE], appends the text after template.
   String resolveText(String rawText) {
+    if (template.contains('[Text]')) {
+      return template.replaceAll('[Text]', rawText);
+    }
     if (template.contains('[LUTE]')) {
       return template.replaceAll('[LUTE]', rawText);
     }
@@ -127,7 +130,7 @@ class CustomAppWidgetConfig {
     return CustomAppWidgetConfig(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
-      template: json['template'] as String? ?? '[LUTE]',
+      template: json['template'] as String? ?? '[Text]',
       targetAppId: json['targetAppId'] as String? ?? '',
       targetAppLabel: json['targetAppLabel'] as String? ?? '',
       targetAppIconBase64: json['targetAppIconBase64'] as String?,
@@ -239,13 +242,17 @@ class LocalAppTabConfig {
   /// Legacy getter for appOrder
   List<String> get appOrder => getAppOrder(isSentence: false);
 
-  /// Returns the default app ID for the given context (sentence or term).
+  /// Returns the default/instant app ID for the given context (sentence or term).
   String? getDefaultAppId({bool isSentence = false}) {
     if (isSentence) {
       return defaultSentenceAppId;
     }
     return defaultTermAppId ?? _legacyDefaultAppId;
   }
+
+  /// Returns the instant app ID for the given context (sentence or term).
+  String? getInstantAppId({bool isSentence = false}) =>
+      getDefaultAppId(isSentence: isSentence);
 
   /// Returns the hidden app IDs for the given context (sentence or term).
   List<String> getHiddenAppIds({bool isSentence = false}) {

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -47,7 +46,6 @@ class AndroidAppLauncherView extends ConsumerStatefulWidget {
   final bool isActive;
   final bool isInline;
   final bool autoInvoke;
-  final VoidCallback? onOpenTabReorder;
   final VoidCallback? onAutoInvoked;
 
   const AndroidAppLauncherView({
@@ -57,7 +55,6 @@ class AndroidAppLauncherView extends ConsumerStatefulWidget {
     this.isActive = true,
     this.isInline = false,
     this.autoInvoke = true,
-    this.onOpenTabReorder,
     this.onAutoInvoked,
   });
 
@@ -109,7 +106,7 @@ class _AndroidAppLauncherViewState
     if (!mounted || !widget.isActive || !widget.autoInvoke || currentCount != _invokeCounter) return;
 
     final defaultAppId = config.getDefaultAppId(isSentence: widget.isSentence);
-    if (!config.autoInvokeDefault || defaultAppId == null) {
+    if (defaultAppId == null) {
       return;
     }
 
@@ -207,14 +204,31 @@ class _AndroidAppLauncherViewState
       final nextDefault = next.getDefaultAppId(isSentence: widget.isSentence);
       if (widget.isActive &&
           widget.autoInvoke &&
-          next.autoInvokeDefault &&
           nextDefault != null &&
-          (prevDefault != nextDefault ||
-              prev?.autoInvokeDefault != next.autoInvokeDefault)) {
+          prevDefault != nextDefault) {
         _hasAutoInvokedForCurrentActivation = false;
         _checkAndAutoInvoke();
       }
     });
+
+    final currentDefaultId =
+        config.getDefaultAppId(isSentence: widget.isSentence);
+    String? defaultItemLabel;
+    if (currentDefaultId != null) {
+      final customWidget = config.customWidgets
+          .where((w) => w.id == currentDefaultId)
+          .firstOrNull;
+      if (customWidget != null) {
+        defaultItemLabel = customWidget.name;
+      } else {
+        appsAsync.whenData((apps) {
+          final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
+          if (app != null) {
+            defaultItemLabel = app.label;
+          }
+        });
+      }
+    }
 
     if (widget.isInline) {
       return _buildInlineView(context, appsAsync, config);
@@ -222,8 +236,10 @@ class _AndroidAppLauncherViewState
 
     return Column(
       children: [
-        _buildToolbar(context, config),
-        const Divider(height: 1, thickness: 1),
+        if (defaultItemLabel != null) ...[
+          _buildDefaultAppBanner(context, defaultItemLabel!),
+          const Divider(height: 1, thickness: 1),
+        ],
         Expanded(
           child: appsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -248,6 +264,7 @@ class _AndroidAppLauncherViewState
             },
           ),
         ),
+        _buildBottomTabBar(context, config, appsAsync),
       ],
     );
   }
@@ -265,7 +282,7 @@ class _AndroidAppLauncherViewState
           .where((w) => w.id == currentDefaultId)
           .firstOrNull;
       if (customWidget != null) {
-        defaultItemLabel = 'Widget: ${customWidget.name}';
+        defaultItemLabel = customWidget.name;
       } else {
         appsAsync.whenData((apps) {
           final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
@@ -294,21 +311,7 @@ class _AndroidAppLauncherViewState
           // Header row
           Row(
             children: [
-              Icon(
-                Icons.phone_android,
-                size: 16,
-                color: context.m3Primary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                config.tabTitle.isNotEmpty ? config.tabTitle : 'Apps',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: context.appColorScheme.text.primary,
-                    ),
-              ),
               if (defaultItemLabel != null) ...[
-                const SizedBox(width: 8),
                 Flexible(
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -323,8 +326,8 @@ class _AndroidAppLauncherViewState
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(
-                          Icons.star,
-                          size: 11,
+                          Icons.bolt,
+                          size: 13,
                           color: Colors.amber,
                         ),
                         const SizedBox(width: 3),
@@ -358,44 +361,6 @@ class _AndroidAppLauncherViewState
                   child: const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                     child: Icon(Icons.add_circle_outline, size: 18),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Tooltip(
-                message: config.autoInvokeDefault
-                    ? 'Auto-launch on open: ON'
-                    : 'Auto-launch on open: OFF',
-                child: InkWell(
-                  onTap: () {
-                    ref
-                        .read(localAppTabConfigProvider.notifier)
-                        .toggleAutoInvoke(!config.autoInvokeDefault);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          !config.autoInvokeDefault
-                              ? 'Auto-launch enabled when opening term window'
-                              : 'Auto-launch disabled',
-                        ),
-                        duration: const Duration(seconds: 1),
-                      ),
-                    );
-                  },
-                  borderRadius: BorderRadius.circular(16),
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    child: Icon(
-                      config.autoInvokeDefault
-                          ? Icons.bolt
-                          : Icons.bolt_outlined,
-                      size: 18,
-                      color: config.autoInvokeDefault
-                          ? context.m3Primary
-                          : context.appColorScheme.text.primary
-                              .withValues(alpha: 0.4),
-                    ),
                   ),
                 ),
               ),
@@ -568,12 +533,12 @@ class _AndroidAppLauncherViewState
                       child: Container(
                         padding: const EdgeInsets.all(1.5),
                         decoration: BoxDecoration(
-                          color: context.m3Primary,
+                          color: Colors.amber.shade700,
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
-                          Icons.star,
-                          size: 9,
+                          Icons.bolt,
+                          size: 10,
                           color: Colors.white,
                         ),
                       ),
@@ -668,12 +633,12 @@ class _AndroidAppLauncherViewState
                     Container(
                       padding: const EdgeInsets.all(1.5),
                       decoration: BoxDecoration(
-                        color: context.m3Primary,
+                        color: Colors.amber.shade700,
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
-                        Icons.star,
-                        size: 8,
+                        Icons.bolt,
+                        size: 9,
                         color: Colors.white,
                       ),
                     ),
@@ -767,132 +732,181 @@ class _AndroidAppLauncherViewState
     );
   }
 
-  Widget _buildToolbar(BuildContext context, LocalAppTabConfig config) {
-    final appsAsync = ref.watch(installedAppsProvider);
-    final currentDefaultId =
-        config.getDefaultAppId(isSentence: widget.isSentence);
-    String? defaultItemLabel;
-    if (currentDefaultId != null) {
-      final customWidget = config.customWidgets
-          .where((w) => w.id == currentDefaultId)
-          .firstOrNull;
-      if (customWidget != null) {
-        defaultItemLabel = 'Widget: ${customWidget.name}';
-      } else {
-        appsAsync.whenData((apps) {
-          final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
-          if (app != null) {
-            defaultItemLabel = app.label;
-          }
-        });
-      }
-    }
-
-    final defaultText = defaultItemLabel != null
-        ? (widget.isSentence
-            ? 'Default (Sentence): $defaultItemLabel'
-            : 'Default (Term): $defaultItemLabel')
-        : 'Tap app or widget to launch';
-
+  Widget _buildDefaultAppBanner(BuildContext context, String defaultItemLabel) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       color: context.appColorScheme.background.surfaceContainerHighest.withValues(
-        alpha: 0.4,
+        alpha: 0.3,
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.phone_android,
-            size: 18,
-            color: context.m3Primary,
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              defaultText,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 6,
+              vertical: 2,
+            ),
+            decoration: BoxDecoration(
+              color: context.m3Primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.bolt,
+                  size: 13,
+                  color: Colors.amber,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Instant: $defaultItemLabel',
+                  style: TextStyle(
+                    fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: context.appColorScheme.text.primary,
+                    color: context.m3Primary,
                   ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
           ),
-          Tooltip(
-            message: 'Add Custom Widget',
-            child: IconButton(
-              icon: const Icon(Icons.add_circle_outline, size: 20),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-              onPressed: () {
-                appsAsync.whenData((allApps) {
-                  _showCustomWidgetDialog(context, allApps: allApps);
-                });
-              },
-            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomTabBar(
+    BuildContext context,
+    LocalAppTabConfig config,
+    AsyncValue<List<AndroidAppInfo>> appsAsync,
+  ) {
+    final dividerColor = context.appColorScheme.border.dividerColor;
+    final textColor =
+        context.appColorScheme.text.primary.withValues(alpha: 0.85);
+
+    return Container(
+      height: 38,
+      decoration: BoxDecoration(
+        color: context.appColorScheme.background.surfaceContainerHighest
+            .withValues(alpha: 0.4),
+        border: Border(
+          top: BorderSide(
+            color: dividerColor,
+            width: 1,
           ),
-          Tooltip(
-            message: config.autoInvokeDefault
-                ? 'Auto-launch on tab switch: ON'
-                : 'Auto-launch on tab switch: OFF',
-            child: IconButton(
-              icon: Icon(
-                config.autoInvokeDefault
-                    ? Icons.bolt
-                    : Icons.bolt_outlined,
-                size: 20,
-                color: config.autoInvokeDefault
-                    ? context.m3Primary
-                    : context.appColorScheme.text.primary.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Segment 1: Add Custom Widget
+          Expanded(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  appsAsync.whenData((allApps) {
+                    _showCustomWidgetDialog(context, allApps: allApps);
+                  });
+                },
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add_circle_outline, size: 16, color: context.m3Primary),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Add Widget',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: textColor,
+                              fontSize: 11.5,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-              onPressed: () {
-                ref
-                    .read(localAppTabConfigProvider.notifier)
-                    .toggleAutoInvoke(!config.autoInvokeDefault);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      !config.autoInvokeDefault
-                          ? 'Auto-launch enabled when switching to this tab'
-                          : 'Auto-launch disabled',
+            ),
+          ),
+          Container(
+            height: 18,
+            width: 1,
+            color: dividerColor.withValues(alpha: 0.6),
+          ),
+          // Segment 2: Manage / Sort Apps & Widgets
+          Expanded(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _showManageAppsSheet(context),
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.tune, size: 16, color: context.m3Primary),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Manage & Sort',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: textColor,
+                              fontSize: 11.5,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Container(
+            height: 18,
+            width: 1,
+            color: dividerColor.withValues(alpha: 0.6),
+          ),
+          // Segment 3: Refresh App List
+          Expanded(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  ref.invalidate(installedAppsProvider);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Refreshed app list'),
+                      duration: Duration(seconds: 1),
                     ),
-                    duration: const Duration(seconds: 1),
+                  );
+                },
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.refresh, size: 16, color: context.m3Primary),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Refresh',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: textColor,
+                              fontSize: 11.5,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
-                );
-              },
-            ),
-          ),
-          Tooltip(
-            message: 'Manage Apps & Widgets',
-            child: IconButton(
-              icon: const Icon(Icons.tune, size: 20),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-              onPressed: () => _showManageAppsSheet(context),
-            ),
-          ),
-          if (widget.onOpenTabReorder != null)
-            Tooltip(
-              message: 'Reorder Tabs',
-              child: IconButton(
-                icon: const Icon(Icons.sort, size: 20),
-                padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints.tightFor(width: 32, height: 32),
-                onPressed: widget.onOpenTabReorder,
+                ),
               ),
-            ),
-          Tooltip(
-            message: 'Refresh App List',
-            child: IconButton(
-              icon: const Icon(Icons.refresh, size: 20),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-              onPressed: () {
-                ref.invalidate(installedAppsProvider);
-              },
             ),
           ),
         ],
@@ -1004,12 +1018,12 @@ class _AndroidAppLauncherViewState
                       child: Container(
                         padding: const EdgeInsets.all(1.5),
                         decoration: BoxDecoration(
-                          color: context.m3Primary,
+                          color: Colors.amber.shade700,
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
-                          Icons.star,
-                          size: 10,
+                          Icons.bolt,
+                          size: 11,
                           color: Colors.white,
                         ),
                       ),
@@ -1102,12 +1116,12 @@ class _AndroidAppLauncherViewState
                     Container(
                       padding: const EdgeInsets.all(2),
                       decoration: BoxDecoration(
-                        color: context.m3Primary,
+                        color: Colors.amber.shade700,
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
-                        Icons.star,
-                        size: 9,
+                        Icons.bolt,
+                        size: 11,
                         color: Colors.white,
                       ),
                     ),
@@ -1192,24 +1206,25 @@ class _AndroidAppLauncherViewState
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (sheetContext) {
         final termTile = ListTile(
           leading: Icon(
-            isTermDefault ? Icons.star : Icons.star_border,
+            isTermDefault ? Icons.bolt : Icons.bolt_outlined,
             color: isTermDefault ? Colors.amber : null,
           ),
           title: Text(
             isTermDefault
-                ? 'Clear Default for Terms'
-                : 'Set as Default for Terms',
+                ? 'Remove Instant App for Terms'
+                : 'Set as Instant App for Terms',
           ),
           subtitle: Text(
             isTermDefault
-                ? 'Currently auto-invoked when looking up terms'
-                : 'Auto-invoke this app when looking up terms',
+                ? 'Currently auto-launched when looking up terms'
+                : 'Auto-launch this app when looking up terms',
           ),
           onTap: () {
             Navigator.pop(sheetContext);
@@ -1220,8 +1235,8 @@ class _AndroidAppLauncherViewState
               SnackBar(
                 content: Text(
                   isTermDefault
-                      ? 'Cleared default app for terms'
-                      : 'Set ${app.label} as default app for terms',
+                      ? 'Removed instant app for terms'
+                      : 'Set ${app.label} as instant app for terms',
                 ),
                 duration: const Duration(seconds: 1),
               ),
@@ -1231,18 +1246,18 @@ class _AndroidAppLauncherViewState
 
         final sentenceTile = ListTile(
           leading: Icon(
-            isSentenceDefault ? Icons.star : Icons.star_border,
+            isSentenceDefault ? Icons.bolt : Icons.bolt_outlined,
             color: isSentenceDefault ? Colors.amber : null,
           ),
           title: Text(
             isSentenceDefault
-                ? 'Clear Default for Sentences'
-                : 'Set as Default for Sentences',
+                ? 'Remove Instant App for Sentences'
+                : 'Set as Instant App for Sentences',
           ),
           subtitle: Text(
             isSentenceDefault
-                ? 'Currently auto-invoked when looking up sentences'
-                : 'Auto-invoke this app when looking up sentences',
+                ? 'Currently auto-launched when looking up sentences'
+                : 'Auto-launch this app when looking up sentences',
           ),
           onTap: () {
             Navigator.pop(sheetContext);
@@ -1253,8 +1268,8 @@ class _AndroidAppLauncherViewState
               SnackBar(
                 content: Text(
                   isSentenceDefault
-                      ? 'Cleared default app for sentences'
-                      : 'Set ${app.label} as default app for sentences',
+                      ? 'Removed instant app for sentences'
+                      : 'Set ${app.label} as instant app for sentences',
                 ),
                 duration: const Duration(seconds: 1),
               ),
@@ -1263,7 +1278,7 @@ class _AndroidAppLauncherViewState
         );
 
         return SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1353,24 +1368,25 @@ class _AndroidAppLauncherViewState
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (sheetContext) {
         final termTile = ListTile(
           leading: Icon(
-            isTermDefault ? Icons.star : Icons.star_border,
+            isTermDefault ? Icons.bolt : Icons.bolt_outlined,
             color: isTermDefault ? Colors.amber : null,
           ),
           title: Text(
             isTermDefault
-                ? 'Clear Default for Terms'
-                : 'Set as Default for Terms',
+                ? 'Remove Instant Widget for Terms'
+                : 'Set as Instant Widget for Terms',
           ),
           subtitle: Text(
             isTermDefault
-                ? 'Currently auto-invoked with template for terms'
-                : 'Auto-invoke this widget when looking up terms',
+                ? 'Currently auto-launched with template for terms'
+                : 'Auto-launch this widget when looking up terms',
           ),
           onTap: () {
             Navigator.pop(sheetContext);
@@ -1384,8 +1400,8 @@ class _AndroidAppLauncherViewState
               SnackBar(
                 content: Text(
                   isTermDefault
-                      ? 'Cleared default widget for terms'
-                      : 'Set ${customWidget.name} as default for terms',
+                      ? 'Removed instant widget for terms'
+                      : 'Set ${customWidget.name} as instant widget for terms',
                 ),
                 duration: const Duration(seconds: 1),
               ),
@@ -1395,18 +1411,18 @@ class _AndroidAppLauncherViewState
 
         final sentenceTile = ListTile(
           leading: Icon(
-            isSentenceDefault ? Icons.star : Icons.star_border,
+            isSentenceDefault ? Icons.bolt : Icons.bolt_outlined,
             color: isSentenceDefault ? Colors.amber : null,
           ),
           title: Text(
             isSentenceDefault
-                ? 'Clear Default for Sentences'
-                : 'Set as Default for Sentences',
+                ? 'Remove Instant Widget for Sentences'
+                : 'Set as Instant Widget for Sentences',
           ),
           subtitle: Text(
             isSentenceDefault
-                ? 'Currently auto-invoked with template for sentences'
-                : 'Auto-invoke this widget when looking up sentences',
+                ? 'Currently auto-launched with template for sentences'
+                : 'Auto-launch this widget when looking up sentences',
           ),
           onTap: () {
             Navigator.pop(sheetContext);
@@ -1420,8 +1436,8 @@ class _AndroidAppLauncherViewState
               SnackBar(
                 content: Text(
                   isSentenceDefault
-                      ? 'Cleared default widget for sentences'
-                      : 'Set ${customWidget.name} as default for sentences',
+                      ? 'Removed instant widget for sentences'
+                      : 'Set ${customWidget.name} as instant widget for sentences',
                 ),
                 duration: const Duration(seconds: 1),
               ),
@@ -1430,7 +1446,7 @@ class _AndroidAppLauncherViewState
         );
 
         return SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1576,7 +1592,7 @@ class _AndroidAppLauncherViewState
           (initialTargetApp != null ? '翻译到 ${initialTargetApp.label}' : ''),
     );
     final templateController = TextEditingController(
-      text: existingWidget?.template ?? '翻译 [LUTE]',
+      text: existingWidget?.template ?? '翻译 [Text]',
     );
 
     AndroidAppInfo selectedApp = initialTargetApp ??
@@ -1592,11 +1608,18 @@ class _AndroidAppLauncherViewState
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final previewText = templateController.text.contains('[LUTE]')
-                ? templateController.text.replaceAll(
-                    '[LUTE]',
-                    widget.text.isNotEmpty ? widget.text : '示例内容',
-                  )
+            final hasPlaceholder = templateController.text.contains('[Text]') ||
+                templateController.text.contains('[LUTE]');
+            final previewText = hasPlaceholder
+                ? templateController.text
+                    .replaceAll(
+                      '[Text]',
+                      widget.text.isNotEmpty ? widget.text : '示例内容',
+                    )
+                    .replaceAll(
+                      '[LUTE]',
+                      widget.text.isNotEmpty ? widget.text : '示例内容',
+                    )
                 : (templateController.text.trim().isEmpty
                     ? (widget.text.isNotEmpty ? widget.text : '示例内容')
                     : '${templateController.text} ${widget.text.isNotEmpty ? widget.text : "示例内容"}');
@@ -1625,13 +1648,13 @@ class _AndroidAppLauncherViewState
                         onChanged: (_) => setDialogState(() {}),
                         decoration: InputDecoration(
                           labelText: 'Template (模板内容) *',
-                          hintText: 'e.g. 翻译 [LUTE]',
-                          helperText: '[LUTE] is the placeholder for selected text',
+                          hintText: 'e.g. 翻译 [Text]',
+                          helperText: '[Text] is the placeholder for selected text',
                           border: const OutlineInputBorder(),
                           isDense: true,
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.add),
-                            tooltip: 'Insert [LUTE]',
+                            tooltip: 'Insert [Text]',
                             onPressed: () {
                               final text = templateController.text;
                               final selection = templateController.selection;
@@ -1641,7 +1664,7 @@ class _AndroidAppLauncherViewState
                                 final newText = text.replaceRange(
                                   selection.start,
                                   selection.end,
-                                  '[LUTE]',
+                                  '[Text]',
                                 );
                                 templateController.value = TextEditingValue(
                                   text: newText,
@@ -1650,7 +1673,7 @@ class _AndroidAppLauncherViewState
                                   ),
                                 );
                               } else {
-                                templateController.text = '$text [LUTE]'.trim();
+                                templateController.text = '$text [Text]'.trim();
                               }
                               setDialogState(() {});
                             },
@@ -1664,30 +1687,30 @@ class _AndroidAppLauncherViewState
                         runSpacing: 4,
                         children: [
                           _buildPresetChip(
-                            label: '翻译 [LUTE]',
+                            label: '翻译 [Text]',
                             onTap: () {
-                              templateController.text = '翻译 [LUTE]';
+                              templateController.text = '翻译 [Text]';
                               setDialogState(() {});
                             },
                           ),
                           _buildPresetChip(
-                            label: 'Define: [LUTE]',
+                            label: 'Define: [Text]',
                             onTap: () {
-                              templateController.text = 'Define: [LUTE]';
+                              templateController.text = 'Define: [Text]';
                               setDialogState(() {});
                             },
                           ),
                           _buildPresetChip(
-                            label: '解释词汇：[LUTE]',
+                            label: '解释词汇：[Text]',
                             onTap: () {
-                              templateController.text = '解释词汇：[LUTE]';
+                              templateController.text = '解释词汇：[Text]';
                               setDialogState(() {});
                             },
                           ),
                           _buildPresetChip(
-                            label: '[LUTE]',
+                            label: '[Text]',
                             onTap: () {
-                              templateController.text = '[LUTE]';
+                              templateController.text = '[Text]';
                               setDialogState(() {});
                             },
                           ),
@@ -1800,7 +1823,7 @@ class _AndroidAppLauncherViewState
                     final newWidget = CustomAppWidgetConfig(
                       id: widgetId,
                       name: name,
-                      template: template.isNotEmpty ? template : '[LUTE]',
+                      template: template.isNotEmpty ? template : '[Text]',
                       targetAppId: selectedApp.id,
                       targetAppLabel: selectedApp.label,
                       targetAppIconBase64: selectedApp.iconBase64,
@@ -1912,7 +1935,10 @@ class _AndroidAppLauncherViewState
                         return Column(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(16),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
                               decoration: BoxDecoration(
                                 border: Border(
                                   bottom: BorderSide(
@@ -1922,30 +1948,59 @@ class _AndroidAppLauncherViewState
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.tune),
+                                  const Icon(Icons.tune, size: 20),
                                   const SizedBox(width: 8),
-                                  Text(
-                                    'Manage Apps & Widgets',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(fontWeight: FontWeight.bold),
+                                  Expanded(
+                                    child: Text(
+                                      'Manage Apps & Widgets',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                  const Spacer(),
-                                  FilledButton.tonalIcon(
-                                    icon: const Icon(Icons.add, size: 16),
-                                    label: const Text('Add Widget'),
-                                    onPressed: () {
-                                      _showCustomWidgetDialog(
-                                        context,
-                                        allApps: allApps,
-                                      );
-                                    },
+                                  Tooltip(
+                                    message: 'Add Custom Widget',
+                                    child: IconButton(
+                                      icon: const Icon(
+                                        Icons.add_circle_outline,
+                                        size: 22,
+                                      ),
+                                      constraints:
+                                          const BoxConstraints.tightFor(
+                                        width: 36,
+                                        height: 36,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      onPressed: () {
+                                        _showCustomWidgetDialog(
+                                          context,
+                                          allApps: allApps,
+                                        );
+                                      },
+                                    ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(sheetContext),
-                                    child: const Text('Done'),
+                                  const SizedBox(width: 4),
+                                  Tooltip(
+                                    message: 'Done',
+                                    child: IconButton(
+                                      icon: const Icon(
+                                        Icons.close,
+                                        size: 22,
+                                      ),
+                                      constraints:
+                                          const BoxConstraints.tightFor(
+                                        width: 36,
+                                        height: 36,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      onPressed: () =>
+                                          Navigator.pop(sheetContext),
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1980,8 +2035,8 @@ class _AndroidAppLauncherViewState
                               ),
                               child: Text(
                                 targetIsSentence
-                                    ? 'Drag to reorder. Tap ⭐ to set default app/widget for sentences.'
-                                    : 'Drag to reorder. Tap ⭐ to set default app/widget for terms.',
+                                    ? 'Drag to reorder. Tap ⚡ to set instant app/widget for sentences.'
+                                    : 'Drag to reorder. Tap ⚡ to set instant app/widget for terms.',
                                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                       color: Theme.of(context)
                                           .textTheme
@@ -2071,13 +2126,13 @@ class _AndroidAppLauncherViewState
                                         String? defaultBadge;
                                         if (isTermDef && isSentenceDef) {
                                           defaultBadge =
-                                              '⭐ Default for Terms & Sentences';
+                                              '⚡ Instant for Terms & Sentences';
                                         } else if (isTermDef) {
                                           defaultBadge =
-                                              '⭐ Default for Terms';
+                                              '⚡ Instant for Terms';
                                         } else if (isSentenceDef) {
                                           defaultBadge =
-                                              '⭐ Default for Sentences';
+                                              '⚡ Instant for Sentences';
                                         }
 
                                         return ListTile(
@@ -2172,19 +2227,19 @@ class _AndroidAppLauncherViewState
                                               IconButton(
                                                 icon: Icon(
                                                   isCurrentTargetDef
-                                                      ? Icons.star
-                                                      : Icons.star_border,
+                                                      ? Icons.bolt
+                                                      : Icons.bolt_outlined,
                                                   color: isCurrentTargetDef
                                                       ? Colors.amber
                                                       : null,
                                                 ),
                                                 tooltip: isCurrentTargetDef
                                                     ? (targetIsSentence
-                                                        ? 'Clear default for sentences'
-                                                        : 'Clear default for terms')
+                                                        ? 'Remove instant app for sentences'
+                                                        : 'Remove instant app for terms')
                                                     : (targetIsSentence
-                                                        ? 'Set as default for sentences'
-                                                        : 'Set as default for terms'),
+                                                        ? 'Set as instant app for sentences'
+                                                        : 'Set as instant app for terms'),
                                                 onPressed: () {
                                                   ref
                                                       .read(

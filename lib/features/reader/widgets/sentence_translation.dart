@@ -1,19 +1,15 @@
-import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/sentence_translation.dart';
 import '../../settings/models/ai_settings.dart';
 import '../../settings/providers/ai_settings_provider.dart';
-import '../../../core/providers/ai_provider.dart';
 import '../../../core/providers/android_app_provider.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../core/network/dictionary_service.dart';
 import '../providers/sentence_tts_provider.dart';
-import '../providers/current_book_provider.dart';
-import 'android_app_launcher_view.dart';
+import 'dictionary_browser_view.dart';
 import 'dictionary_tab_reorder_dialog.dart';
 
 class SentenceTranslationWidget extends ConsumerStatefulWidget {
@@ -47,31 +43,20 @@ class SentenceTranslationWidget extends ConsumerStatefulWidget {
 
 class _SentenceTranslationWidgetState
     extends ConsumerState<SentenceTranslationWidget> {
-  late PageController _pageController;
+  late TextEditingController _textController;
+  late String _currentText;
+  Timer? _debounceTimer;
   List<DictionarySource> _dictionaries = [];
   int _currentPage = 0;
-  final Map<int, InAppWebViewController> _webviewControllers = {};
   bool _hasLoaded = false;
-  bool _isLoadingAI = false;
-  String? _aiTranslation;
-  String? _aiErrorMessage;
-  bool _hasFetchedAI = false;
-  bool _isLoadingVirtualDict = false;
-  String? _virtualDictionaryContent;
-  String? _virtualDictionaryError;
-  bool _hasFetchedVirtualDict = false;
-  final Set<int> _preloadedPages = {};
-  bool _isPreloading = false;
-  bool _isOriginalCollapsed = true;
   int _popupHeight = DictionaryService.defaultPopupHeight;
-  bool _hasAutoInvokedLocalApp = false;
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: 0);
+    _currentText = widget.sentence;
+    _textController = TextEditingController(text: _currentText);
     _loadPopupHeight();
-    _loadStartCollapsed();
     _loadDictionaries();
   }
 
@@ -79,7 +64,8 @@ class _SentenceTranslationWidgetState
   void didUpdateWidget(SentenceTranslationWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.sentence != widget.sentence) {
-      _hasAutoInvokedLocalApp = false;
+      _currentText = widget.sentence;
+      _textController.text = widget.sentence;
     }
   }
 
@@ -89,16 +75,6 @@ class _SentenceTranslationWidgetState
     if (mounted) {
       setState(() {
         _popupHeight = height;
-      });
-    }
-  }
-
-  Future<void> _loadStartCollapsed() async {
-    final collapsed = await widget.dictionaryService
-        .getSentenceTranslationStartCollapsed();
-    if (mounted) {
-      setState(() {
-        _isOriginalCollapsed = collapsed;
       });
     }
   }
@@ -189,18 +165,13 @@ class _SentenceTranslationWidgetState
       initialPage = 0;
     }
 
-    setState(() {
-      _dictionaries = ordered;
-      _currentPage = initialPage;
-      _hasLoaded = true;
-      _pageController.dispose();
-      _pageController = PageController(initialPage: initialPage);
-    });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _loadCurrentPageContent();
-    });
+    if (mounted) {
+      setState(() {
+        _dictionaries = ordered;
+        _currentPage = initialPage;
+        _hasLoaded = true;
+      });
+    }
   }
 
   void _openTabReorderDialog() {
@@ -217,153 +188,20 @@ class _SentenceTranslationWidgetState
     );
   }
 
-  void _loadCurrentPageContent() {
-    if (_dictionaries.isEmpty || _currentPage >= _dictionaries.length) return;
-
-    final currentDict = _dictionaries[_currentPage];
-    if (!currentDict.isAI) return;
-
-    if (currentDict.aiType == AIType.virtualDictionary) {
-      _fetchVirtualDictionary();
-    } else {
-      _fetchAITranslation();
-    }
-  }
-
-  Future<void> _fetchAITranslation() async {
-    if (_isLoadingAI || _hasFetchedAI) return;
-
-    setState(() {
-      _isLoadingAI = true;
-      _aiTranslation = null;
-      _aiErrorMessage = null;
+  void _onTextChanged(String newText) {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() {
+        _currentText = newText;
+      });
     });
-
-    try {
-      final aiService = ref.read(aiServiceProvider);
-      final currentBookState = ref.read(currentBookProvider);
-      final language =
-          currentBookState.languageName ??
-          currentBookState.book?.language ??
-          'Unknown';
-
-      final translation = await aiService.translateSentence(
-        widget.sentence,
-        language,
-      );
-
-      if (mounted) {
-        setState(() {
-          _isLoadingAI = false;
-          _aiTranslation = translation;
-          _hasFetchedAI = true;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoadingAI = false;
-          _aiErrorMessage = e.toString();
-          _hasFetchedAI = true;
-        });
-      }
-    }
-  }
-
-  Future<void> _fetchVirtualDictionary() async {
-    if (_isLoadingVirtualDict || _hasFetchedVirtualDict) return;
-
-    setState(() {
-      _isLoadingVirtualDict = true;
-      _virtualDictionaryContent = null;
-      _virtualDictionaryError = null;
-    });
-
-    try {
-      final aiService = ref.read(aiServiceProvider);
-      final currentBookState = ref.read(currentBookProvider);
-      final language = currentBookState.languageName ?? 'Unknown';
-
-      final content = await aiService.getVirtualDictionaryEntry(
-        widget.sentence,
-        language,
-      );
-
-      if (mounted) {
-        setState(() {
-          _isLoadingVirtualDict = false;
-          _virtualDictionaryContent = content;
-          _hasFetchedVirtualDict = true;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoadingVirtualDict = false;
-          _virtualDictionaryError = e.toString();
-          _hasFetchedVirtualDict = true;
-        });
-      }
-    }
-  }
-
-  Future<void> _preloadAdjacentPages() async {
-    if (_isPreloading || !mounted || _dictionaries.isEmpty) {
-      return;
-    }
-
-    await Future.delayed(const Duration(milliseconds: 200));
-
-    if (!mounted) {
-      return;
-    }
-
-    _isPreloading = true;
-
-    final pagesToPreload = <int>[];
-
-    if (_currentPage > 0 &&
-        !_preloadedPages.contains(_currentPage - 1) &&
-        !_dictionaries[_currentPage - 1].isAI &&
-        !_dictionaries[_currentPage - 1].isAndroidApp) {
-      pagesToPreload.add(_currentPage - 1);
-    }
-
-    if (_currentPage < _dictionaries.length - 1 &&
-        !_preloadedPages.contains(_currentPage + 1) &&
-        !_dictionaries[_currentPage + 1].isAI &&
-        !_dictionaries[_currentPage + 1].isAndroidApp) {
-      pagesToPreload.add(_currentPage + 1);
-    }
-
-    if (pagesToPreload.isEmpty) {
-      _isPreloading = false;
-      return;
-    }
-
-    for (final pageIndex in pagesToPreload) {
-      if (!mounted) break;
-
-      try {
-        _pageController.jumpToPage(pageIndex);
-        _preloadedPages.add(pageIndex);
-
-        if (!mounted) break;
-
-        _pageController.jumpToPage(_currentPage);
-      } catch (e) {
-        if (kDebugMode) {
-          print('Error preloading page $pageIndex: $e');
-        }
-      }
-    }
-
-    _isPreloading = false;
   }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _debounceTimer?.cancel();
+    _textController.dispose();
     ref.read(sentenceTTSProvider.notifier).stop();
     super.dispose();
   }
@@ -371,11 +209,19 @@ class _SentenceTranslationWidgetState
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
-    final targetHeight = screenHeight * (2 / 3);
+    final viewInsets = MediaQuery.of(context).viewInsets;
+    final maxModalHeight = screenHeight * 0.94;
+    final maxAvailableHeight =
+        (screenHeight - viewInsets.bottom - 16).clamp(240.0, maxModalHeight);
+
+    final browserHeight = _popupHeight.toDouble().clamp(
+          DictionaryService.minPopupHeight.toDouble(),
+          screenHeight * 0.75,
+        );
 
     if (!_hasLoaded) {
       return Container(
-        height: targetHeight,
+        constraints: BoxConstraints(maxHeight: maxAvailableHeight),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: context.appColorScheme.background.background,
@@ -385,579 +231,199 @@ class _SentenceTranslationWidgetState
       );
     }
 
-    if (_dictionaries.isEmpty) {
-      return Container(
-        height: targetHeight,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: context.appColorScheme.background.background,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeader(context),
-            const SizedBox(height: 16),
-            _buildOriginalSentence(context),
-            const SizedBox(height: 12),
-            Expanded(child: _buildNoDictionariesState(context)),
-            const SizedBox(height: 8),
-            _buildCloseButton(context),
-          ],
-        ),
-      );
-    }
-
     return Container(
-      height: targetHeight,
-      padding: const EdgeInsets.all(20),
+      constraints: BoxConstraints(maxHeight: maxAvailableHeight),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
       decoration: BoxDecoration(
         color: context.appColorScheme.background.background,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeader(context),
-          const SizedBox(height: 16),
-          _buildOriginalSentence(context),
-          const SizedBox(height: 8),
-          Expanded(
-            child: _buildDictionaryContent(context),
-          ),
-          const SizedBox(height: 8),
-          _buildCloseButton(context),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    if (_dictionaries.isEmpty) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left, size: 20),
-            onPressed: null,
-            tooltip: 'Previous dictionary',
-          ),
-          Text(
-            'No Dictionaries',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.chevron_right, size: 20),
-                onPressed: null,
-                tooltip: 'Next dictionary',
-              ),
-              IconButton(
-                icon: const Icon(Icons.settings, size: 20),
-                onPressed: () => _showHeightAdjustmentDialog(context),
-                tooltip: 'Adjust popup height',
-              ),
-            ],
-          ),
-        ],
-      );
-    }
-
-    final currentDict = _dictionaries[_currentPage];
-    return Container(
-      height: 36,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: context.appColorScheme.background.surfaceContainerHighest,
-        border: Border(
-          bottom: BorderSide(
-            color: context.appColorScheme.border.dividerColor,
-            width: 1,
-          ),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left, size: 20),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-            onPressed: _currentPage > 0
-                ? () {
-                    _pageController.previousPage(
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeInOut,
-                    );
-                  }
-                : null,
-            tooltip: 'Previous dictionary',
-          ),
-          Expanded(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (currentDict.isAndroidApp) ...[
-                  Icon(
-                    Icons.phone_android,
-                    size: 16,
-                    color: context.m3Primary,
-                  ),
-                  const SizedBox(width: 4),
-                ],
-                Flexible(
-                  child: Text(
-                    currentDict.name,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right, size: 20),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-            onPressed: _currentPage < _dictionaries.length - 1
-                ? () {
-                    _pageController.nextPage(
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeInOut,
-                    );
-                  }
-                : null,
-            tooltip: 'Next dictionary',
-          ),
-          IconButton(
-            icon: const Icon(Icons.sort, size: 20),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-            onPressed: _openTabReorderDialog,
-            tooltip: 'Reorder tabs',
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings, size: 20),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-            onPressed: () => _showHeightAdjustmentDialog(context),
-            tooltip: 'Adjust popup height',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOriginalSentence(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        GestureDetector(
-          onTap: () {
-            setState(() {
-              _isOriginalCollapsed = !_isOriginalCollapsed;
-            });
-          },
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Original',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: context.m3Secondary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Icon(
-                _isOriginalCollapsed ? Icons.expand_more : Icons.expand_less,
-                color: context.m3Secondary,
-              ),
-            ],
-          ),
-        ),
-        if (!_isOriginalCollapsed) ...[
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: Theme.of(
-                  context,
-                ).colorScheme.outline.withValues(alpha: 0.3),
-                width: 1,
-              ),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.sentence,
-                    style: Theme.of(context).textTheme.bodyLarge,
-                  ),
-                ),
-                Consumer(
-                  builder: (context, ref, child) {
-                    final ttsState = ref.watch(sentenceTTSProvider);
-                    final isCurrentSentence =
-                        ttsState.currentText == widget.sentence;
-
-                    IconData icon;
-                    Color color;
-                    VoidCallback? onPressed;
-
-                    if (isCurrentSentence && ttsState.isLoading) {
-                      icon = Icons.hourglass_empty;
-                      color = context.m3Primary;
-                      onPressed = null;
-                    } else if (isCurrentSentence && ttsState.isPlaying) {
-                      icon = Icons.stop;
-                      color = context.error;
-                      onPressed = () =>
-                          ref.read(sentenceTTSProvider.notifier).stop();
-                    } else {
-                      icon = Icons.volume_up;
-                      color = context.m3Primary;
-                      onPressed = () => ref
-                          .read(sentenceTTSProvider.notifier)
-                          .speakSentence(widget.sentence, 0);
-                    }
-
-                    return Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.copy),
-                          color: context.m3Primary,
-                          onPressed: () {
-                            Clipboard.setData(
-                              ClipboardData(text: widget.sentence),
-                            );
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Original text copied to clipboard',
-                                ),
-                                duration: Duration(seconds: 1),
-                              ),
-                            );
-                          },
-                          tooltip: 'Copy original text',
-                          constraints: const BoxConstraints(
-                            minWidth: 40,
-                            minHeight: 40,
-                          ),
-                          padding: EdgeInsets.zero,
-                        ),
-                        IconButton(
-                          icon: Icon(icon),
-                          color: color,
-                          onPressed: onPressed,
-                          tooltip: isCurrentSentence && ttsState.isPlaying
-                              ? 'Stop TTS'
-                              : 'Read sentence',
-                          constraints: const BoxConstraints(
-                            minWidth: 40,
-                            minHeight: 40,
-                          ),
-                          padding: EdgeInsets.zero,
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildDictionaryContent(BuildContext context) {
-    return PageView.builder(
-      controller: _pageController,
-      allowImplicitScrolling: true,
-      onPageChanged: (index) async {
-        if (_isPreloading) return;
-        setState(() {
-          _currentPage = index;
-        });
-        final currentDict = _dictionaries[index];
-        await widget.dictionaryService.rememberLastUsedSentenceDictionary(
-          widget.languageId,
-          _dictionaries[index].name,
-        );
-        if (currentDict.isAI) {
-          if (currentDict.aiType == AIType.virtualDictionary) {
-            _fetchVirtualDictionary();
-          } else {
-            _fetchAITranslation();
-          }
-        }
-      },
-      itemCount: _dictionaries.length,
-      itemBuilder: (context, index) {
-        final dict = _dictionaries[index];
-        if (dict.isAndroidApp) {
-          return AndroidAppLauncherView(
-            text: widget.sentence,
-            isSentence: true,
-            isActive: _currentPage == index,
-            autoInvoke: !_hasAutoInvokedLocalApp,
-            onAutoInvoked: () {
-              if (mounted) {
-                setState(() {
-                  _hasAutoInvokedLocalApp = true;
-                });
-              }
-            },
-            onOpenTabReorder: _openTabReorderDialog,
-          );
-        }
-        return _buildWebViewPage(context, dict, index);
-      },
-    );
-  }
-
-  Widget _buildWebViewPage(
-    BuildContext context,
-    DictionarySource dictionary,
-    int index,
-  ) {
-    if (dictionary.isAI) {
-      if (dictionary.aiType == AIType.virtualDictionary) {
-        return _buildVirtualDictionaryContent(context);
-      }
-      return _buildAIContent(context);
-    }
-
-    final url = widget.dictionaryService.buildUrl(
-      widget.sentence,
-      dictionary.urlTemplate,
-    );
-
-    return InAppWebView(
-      initialUrlRequest: URLRequest(url: WebUri(url)),
-      initialSettings: InAppWebViewSettings(
-        sharedCookiesEnabled: true,
-        cacheEnabled: true,
-        javaScriptEnabled: true,
-        userAgent:
-            'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-      ),
-      gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-        Factory(() => VerticalDragGestureRecognizer()),
-      },
-      onWebViewCreated: (controller) {
-        _webviewControllers[dictionary.hashCode] = controller;
-      },
-      onLoadStop: (controller, url) {
-        if (index == _currentPage) {
-          _preloadAdjacentPages();
-        }
-      },
-    );
-  }
-
-  Widget _buildVirtualDictionaryContent(BuildContext context) {
-    if (_isLoadingVirtualDict) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_virtualDictionaryError != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: context.error),
-              const SizedBox(height: 16),
-              Text(
-                'Virtual Dictionary Failed',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _virtualDictionaryError!,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: context.error),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _fetchVirtualDictionary,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_virtualDictionaryContent != null) {
-      return SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+      child: SingleChildScrollView(
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Dictionary Entry:',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: context.m3Primary,
-                fontWeight: FontWeight.bold,
+            SizedBox(
+              height: browserHeight,
+              child: DictionaryBrowserView(
+                dictionaries: _dictionaries,
+                initialPage: _currentPage,
+                searchText: _currentText,
+                languageId: widget.languageId,
+                isSentence: true,
+                dictionaryService: widget.dictionaryService,
+                onPageChanged: (index) {
+                  _currentPage = index;
+                },
+                onOpenSettings: () => _showHeightAdjustmentDialog(context),
               ),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: TextEditingController(
-                text: _virtualDictionaryContent,
+            Padding(
+              padding: const EdgeInsets.only(top: 14, bottom: 14),
+              child: Divider(
+                height: 1,
+                thickness: 1.5,
+                color: Theme.of(context)
+                    .colorScheme
+                    .outline
+                    .withValues(alpha: 0.35),
               ),
-              maxLines: null,
-              readOnly: true,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              style: Theme.of(context).textTheme.bodyLarge,
             ),
+            _buildTextSection(context),
           ],
         ),
-      );
-    }
-
-    return const SizedBox.shrink();
+      ),
+    );
   }
 
-  Widget _buildAIContent(BuildContext context) {
-    if (_isLoadingAI) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_aiErrorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: context.error),
-              const SizedBox(height: 16),
-              Text(
-                'AI Translation Failed',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _aiErrorMessage!,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: context.error),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _fetchAITranslation,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_aiTranslation != null) {
-      return SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Translation:',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: context.m3Primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: TextEditingController(text: _aiTranslation),
-              maxLines: null,
-              readOnly: true,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-          ],
-        ),
-      );
-    }
-
-    return const SizedBox.shrink();
-  }
-
-  Widget _buildNoDictionariesState(BuildContext context) {
+  Widget _buildTextSection(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: context.appColorScheme.background.surfaceContainerHighest
-            .withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(8),
+        color: context.appColorScheme.background.surface,
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: context.appColorScheme.border.outline.withValues(alpha: 0.3),
+          color: context.appColorScheme.border.dividerColor
+              .withValues(alpha: 0.5),
           width: 1,
         ),
       ),
-      child: Center(
-        child: Column(
-          children: [
-            Icon(
-              Icons.menu_book,
-              size: 48,
-              color: context.appColorScheme.text.primary.withValues(alpha: 0.4),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'No dictionaries configured',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: context.appColorScheme.text.primary.withValues(
-                  alpha: 0.6,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Text',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: context.appColorScheme.text.primary,
+                    ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.copy, size: 20),
+                    color: context.m3Primary,
+                    onPressed: () {
+                      Clipboard.setData(
+                        ClipboardData(text: _currentText),
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Text copied to clipboard'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                    tooltip: 'Copy text',
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    padding: EdgeInsets.zero,
+                  ),
+                  const SizedBox(width: 4),
+                  Consumer(
+                    builder: (context, ref, child) {
+                      final ttsState = ref.watch(sentenceTTSProvider);
+                      final isCurrentSentence =
+                          ttsState.currentText == _currentText;
+
+                      IconData icon;
+                      Color color;
+                      VoidCallback? onPressed;
+
+                      if (isCurrentSentence && ttsState.isLoading) {
+                        icon = Icons.hourglass_empty;
+                        color = context.m3Primary;
+                        onPressed = null;
+                      } else if (isCurrentSentence && ttsState.isPlaying) {
+                        icon = Icons.stop;
+                        color = context.error;
+                        onPressed = () =>
+                            ref.read(sentenceTTSProvider.notifier).stop();
+                      } else {
+                        icon = Icons.volume_up;
+                        color = context.m3Primary;
+                        onPressed = () => ref
+                            .read(sentenceTTSProvider.notifier)
+                            .speakSentence(_currentText, 0);
+                      }
+
+                      return IconButton(
+                        icon: Icon(icon, size: 20),
+                        color: color,
+                        onPressed: onPressed,
+                        tooltip: isCurrentSentence && ttsState.isPlaying
+                            ? 'Stop TTS'
+                            : 'Read text',
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        padding: EdgeInsets.zero,
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _textController,
+            maxLines: 6,
+            minLines: 4,
+            style: Theme.of(context).textTheme.bodyMedium,
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .outline
+                      .withValues(alpha: 0.3),
                 ),
               ),
-              textAlign: TextAlign.center,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .outline
+                      .withValues(alpha: 0.3),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(
+                  color: context.m3Primary,
+                  width: 1.5,
+                ),
+              ),
+              filled: true,
+              fillColor: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
+              hintText: 'Edit text...',
+              hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: context.appColorScheme.text.primary
+                        .withValues(alpha: 0.4),
+                  ),
             ),
-          ],
-        ),
+            onChanged: _onTextChanged,
+          ),
+        ],
       ),
-    );
-  }
-
-  Widget _buildCloseButton(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: TextButton(onPressed: widget.onClose, child: const Text('Close')),
     );
   }
 
@@ -966,7 +432,6 @@ class _SentenceTranslationWidgetState
       context: context,
       builder: (context) => _HeightAdjustmentDialog(
         currentHeight: _popupHeight,
-        startCollapsed: _isOriginalCollapsed,
         onHeightChanged: (newHeight) async {
           await widget.dictionaryService.setSentenceTranslationPopupHeight(
             newHeight,
@@ -977,16 +442,7 @@ class _SentenceTranslationWidgetState
             });
           }
         },
-        onStartCollapsedChanged: (collapsed) async {
-          await widget.dictionaryService.setSentenceTranslationStartCollapsed(
-            collapsed,
-          );
-          if (mounted) {
-            setState(() {
-              _isOriginalCollapsed = collapsed;
-            });
-          }
-        },
+        onOpenTabReorder: _openTabReorderDialog,
       ),
     );
   }
@@ -994,15 +450,13 @@ class _SentenceTranslationWidgetState
 
 class _HeightAdjustmentDialog extends StatefulWidget {
   final int currentHeight;
-  final bool startCollapsed;
   final Future<void> Function(int) onHeightChanged;
-  final Future<void> Function(bool) onStartCollapsedChanged;
+  final VoidCallback onOpenTabReorder;
 
   const _HeightAdjustmentDialog({
     required this.currentHeight,
-    required this.startCollapsed,
     required this.onHeightChanged,
-    required this.onStartCollapsedChanged,
+    required this.onOpenTabReorder,
   });
 
   @override
@@ -1012,13 +466,11 @@ class _HeightAdjustmentDialog extends StatefulWidget {
 
 class _HeightAdjustmentDialogState extends State<_HeightAdjustmentDialog> {
   late double _height;
-  late bool _startCollapsed;
 
   @override
   void initState() {
     super.initState();
     _height = widget.currentHeight.toDouble();
-    _startCollapsed = widget.startCollapsed;
   }
 
   @override
@@ -1027,8 +479,14 @@ class _HeightAdjustmentDialogState extends State<_HeightAdjustmentDialog> {
       title: const Text('Settings'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${_height.round()} px'),
+          Text(
+            'Popup Height: ${_height.round()} px',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
           Slider(
             value: _height,
             min: DictionaryService.minPopupHeight.toDouble(),
@@ -1047,16 +505,16 @@ class _HeightAdjustmentDialogState extends State<_HeightAdjustmentDialog> {
               widget.onHeightChanged(value.round());
             },
           ),
-          const SizedBox(height: 16),
-          SwitchListTile(
-            title: const Text('Start collapsed'),
-            subtitle: const Text('Original sentence starts collapsed'),
-            value: _startCollapsed,
-            onChanged: (value) {
-              setState(() {
-                _startCollapsed = value;
-              });
-              widget.onStartCollapsedChanged(value);
+          const Divider(),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.sort),
+            title: const Text('Reorder Tabs'),
+            subtitle: const Text('Reorder dictionary & app tabs'),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+            onTap: () {
+              Navigator.of(context).pop();
+              widget.onOpenTabReorder();
             },
           ),
         ],

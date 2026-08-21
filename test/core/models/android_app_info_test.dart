@@ -50,24 +50,37 @@ void main() {
   });
 
   group('CustomAppWidgetConfig', () {
-    test('resolveText properly substitutes [LUTE] placeholder', () {
-      const widgetWithPlaceholder = CustomAppWidgetConfig(
+    test('resolveText properly substitutes [Text] and [LUTE] placeholders', () {
+      const widgetWithTextPlaceholder = CustomAppWidgetConfig(
         id: 'w1',
         name: 'Translate',
+        template: '翻译 [Text]',
+        targetAppId: 'com.test.app/main',
+        targetAppLabel: 'Test App',
+      );
+
+      expect(
+        widgetWithTextPlaceholder.resolveText('hello'),
+        equals('翻译 hello'),
+      );
+
+      const widgetWithLegacyPlaceholder = CustomAppWidgetConfig(
+        id: 'w1_legacy',
+        name: 'Translate Legacy',
         template: '翻译 [LUTE]',
         targetAppId: 'com.test.app/main',
         targetAppLabel: 'Test App',
       );
 
       expect(
-        widgetWithPlaceholder.resolveText('hello'),
+        widgetWithLegacyPlaceholder.resolveText('hello'),
         equals('翻译 hello'),
       );
 
       const widgetMultiplePlaceholders = CustomAppWidgetConfig(
         id: 'w2',
         name: 'Define and Example',
-        template: '[LUTE] - 请解释 [LUTE] 的用法',
+        template: '[Text] - 请解释 [Text] 的用法',
         targetAppId: 'com.test.app/main',
         targetAppLabel: 'Test App',
       );
@@ -108,7 +121,7 @@ void main() {
       const widget = CustomAppWidgetConfig(
         id: 'custom_12345',
         name: '语法分析',
-        template: '分析句子语法结构：[LUTE]',
+        template: '分析句子语法结构：[Text]',
         targetAppId: 'com.chatgpt.app/main',
         targetAppLabel: 'ChatGPT',
         targetAppIconBase64: 'base64icon',
@@ -121,7 +134,7 @@ void main() {
 
       expect(fromJson.id, equals('custom_12345'));
       expect(fromJson.name, equals('语法分析'));
-      expect(fromJson.template, equals('分析句子语法结构：[LUTE]'));
+      expect(fromJson.template, equals('分析句子语法结构：[Text]'));
       expect(fromJson.targetAppId, equals('com.chatgpt.app/main'));
       expect(fromJson.targetAppLabel, equals('ChatGPT'));
       expect(fromJson.targetAppIconBase64, equals('base64icon'));
@@ -276,7 +289,15 @@ void main() {
         equals('com.new.term/main'),
       );
       expect(
+        updated.getInstantAppId(isSentence: false),
+        equals('com.new.term/main'),
+      );
+      expect(
         updated.getDefaultAppId(isSentence: true),
+        equals('com.new.sentence/main'),
+      );
+      expect(
+        updated.getInstantAppId(isSentence: true),
         equals('com.new.sentence/main'),
       );
     });

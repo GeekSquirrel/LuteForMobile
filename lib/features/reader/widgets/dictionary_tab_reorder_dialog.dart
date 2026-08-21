@@ -10,12 +10,14 @@ class TabOrderItem {
   final String name;
   final bool isLocalApp;
   final bool isAI;
+  final bool isImages;
 
   const TabOrderItem({
     required this.id,
     required this.name,
     this.isLocalApp = false,
     this.isAI = false,
+    this.isImages = false,
   });
 }
 
@@ -78,7 +80,7 @@ class _DictionaryTabReorderDialogState
     final allItemsMap = <String, TabOrderItem>{};
 
     for (final dict in widget.webviewDictionaries) {
-      if (dict.isAndroidApp) continue;
+      if (dict.isAndroidApp || dict.isImages) continue;
       allItemsMap[dict.name] = TabOrderItem(
         id: dict.name,
         name: dict.name,
@@ -86,8 +88,16 @@ class _DictionaryTabReorderDialogState
       );
     }
 
-    // Add local app tab if on Android or supported AND configuring sentence tabs
-    if (appService.isSupportedPlatform && widget.isSentence) {
+    if (!widget.isSentence) {
+      allItemsMap[AndroidAppService.imagesTabId] = const TabOrderItem(
+        id: AndroidAppService.imagesTabId,
+        name: 'Images',
+        isImages: true,
+      );
+    }
+
+    // Add local app tab if on Android or supported
+    if (appService.isSupportedPlatform) {
       final config = ref.read(localAppTabConfigProvider);
       allItemsMap[AndroidAppService.localAppsTabId] = TabOrderItem(
         id: AndroidAppService.localAppsTabId,
@@ -140,12 +150,22 @@ class _DictionaryTabReorderDialogState
   void _resetToDefault() {
     final allItems = <TabOrderItem>[];
     for (final dict in widget.webviewDictionaries) {
-      if (dict.isAndroidApp) continue;
+      if (dict.isAndroidApp || dict.isImages) continue;
       allItems.add(
         TabOrderItem(
           id: dict.name,
           name: dict.name,
           isAI: dict.isAI,
+        ),
+      );
+    }
+
+    if (!widget.isSentence) {
+      allItems.add(
+        const TabOrderItem(
+          id: AndroidAppService.imagesTabId,
+          name: 'Images',
+          isImages: true,
         ),
       );
     }
@@ -199,7 +219,7 @@ class _DictionaryTabReorderDialogState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Drag items up or down to customize the tab order. Android app tab and webview tabs are ordered together.',
+                        'Drag items up or down to customize the tab order.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Theme.of(context)
                                   .textTheme
@@ -242,10 +262,12 @@ class _DictionaryTabReorderDialogState
                                   Icon(
                                     item.isLocalApp
                                         ? Icons.phone_android
-                                        : item.isAI
-                                            ? Icons.auto_awesome
-                                            : Icons.language,
-                                    color: item.isLocalApp
+                                        : item.isImages
+                                            ? Icons.image_search
+                                            : item.isAI
+                                                ? Icons.auto_awesome
+                                                : Icons.language,
+                                    color: (item.isLocalApp || item.isImages)
                                         ? context.m3Primary
                                         : null,
                                     size: 20,
@@ -254,13 +276,15 @@ class _DictionaryTabReorderDialogState
                               ),
                               title: Text(
                                 item.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   fontWeight: item.isLocalApp
                                       ? FontWeight.bold
                                       : FontWeight.normal,
                                 ),
                               ),
-                              trailing: item.isLocalApp
+                              trailing: (item.isLocalApp || item.isImages)
                                   ? Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 8,

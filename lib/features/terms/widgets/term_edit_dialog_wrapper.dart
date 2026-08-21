@@ -229,14 +229,20 @@ class _TermEditDialogWrapperState extends ConsumerState<TermEditDialogWrapper> {
           backgroundColor: const Color(0x00000000),
           builder: (bottomSheetContext) {
             var currentForm = parentTermForm!;
-            return StatefulBuilder(
-              builder: (context, setModalState) {
-                return TermFormWidget(
-                  termForm: currentForm,
-                  onUpdate: (updatedForm) {
-                    currentForm = updatedForm;
-                    setModalState(() {});
-                  },
+            return AnimatedPadding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(bottomSheetContext).viewInsets.bottom,
+              ),
+              duration: const Duration(milliseconds: 100),
+              curve: Curves.easeOut,
+              child: StatefulBuilder(
+                builder: (context, setModalState) {
+                  return TermFormWidget(
+                    termForm: currentForm,
+                    onUpdate: (updatedForm) {
+                      currentForm = updatedForm;
+                      setModalState(() {});
+                    },
                   onSave: (updatedForm) async {
                     try {
                       if (updatedForm.termId != null) {
@@ -293,9 +299,10 @@ class _TermEditDialogWrapperState extends ConsumerState<TermEditDialogWrapper> {
                   dictionaryService: ref.read(dictionaryServiceProvider),
                 );
               },
-            );
-          },
-        );
+            ),
+          );
+        },
+      );
       }
     } catch (e) {
       if (mounted) {
