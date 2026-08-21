@@ -116,12 +116,13 @@ class _AndroidAppLauncherViewState
     final apps = await service.getInstalledApps();
     if (!mounted || !widget.isActive || !widget.autoInvoke || currentCount != _invokeCounter) return;
 
+    final hiddenIds = config.getHiddenAppIds(isSentence: widget.isSentence);
     // Check if default is a custom widget
     final customWidget = config.customWidgets
         .where((w) => w.id == defaultAppId)
         .firstOrNull;
     if (customWidget != null) {
-      if (config.hiddenAppIds.contains(customWidget.id)) return;
+      if (hiddenIds.contains(customWidget.id)) return;
       if (_hasAutoInvokedForCurrentActivation) return;
       _hasAutoInvokedForCurrentActivation = true;
       widget.onAutoInvoked?.call();
@@ -131,7 +132,7 @@ class _AndroidAppLauncherViewState
 
     // Otherwise check regular app
     final defaultApp = apps.where((a) => a.id == defaultAppId).firstOrNull;
-    if (defaultApp != null && !config.hiddenAppIds.contains(defaultApp.id)) {
+    if (defaultApp != null && !hiddenIds.contains(defaultApp.id)) {
       if (_hasAutoInvokedForCurrentActivation) return;
       _hasAutoInvokedForCurrentActivation = true;
       widget.onAutoInvoked?.call();
@@ -172,13 +173,15 @@ class _AndroidAppLauncherViewState
         config.customWidgets.map((w) => CustomWidgetLauncherItem(w));
     final allItems = <LauncherItem>[...appItems, ...customItems];
 
+    final hiddenIds = config.getHiddenAppIds(isSentence: widget.isSentence);
     final visible =
-        allItems.where((i) => !config.hiddenAppIds.contains(i.id)).toList();
+        allItems.where((i) => !hiddenIds.contains(i.id)).toList();
 
-    if (config.appOrder.isNotEmpty) {
+    final appOrder = config.getAppOrder(isSentence: widget.isSentence);
+    if (appOrder.isNotEmpty) {
       final orderMap = <String, int>{};
-      for (int i = 0; i < config.appOrder.length; i++) {
-        orderMap[config.appOrder[i]] = i;
+      for (int i = 0; i < appOrder.length; i++) {
+        orderMap[appOrder[i]] = i;
       }
 
       visible.sort((a, b) {
@@ -1306,7 +1309,7 @@ class _AndroidAppLauncherViewState
                     Navigator.pop(sheetContext);
                     ref
                         .read(localAppTabConfigProvider.notifier)
-                        .toggleHideApp(app.id);
+                        .toggleHideApp(app.id, isSentence: widget.isSentence);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('Hidden ${app.label}'),
@@ -1316,7 +1319,7 @@ class _AndroidAppLauncherViewState
                           onPressed: () {
                             ref
                                 .read(localAppTabConfigProvider.notifier)
-                                .toggleHideApp(app.id);
+                                .toggleHideApp(app.id, isSentence: widget.isSentence);
                           },
                         ),
                       ),
@@ -1465,6 +1468,31 @@ class _AndroidAppLauncherViewState
                   sentenceTile,
                   termTile,
                 ],
+                ListTile(
+                  leading: const Icon(Icons.visibility_off_outlined),
+                  title: const Text('Hide this Widget'),
+                  subtitle: const Text('Hide from launcher (can be unhidden in Manage Apps)'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    ref
+                        .read(localAppTabConfigProvider.notifier)
+                        .toggleHideApp(customWidget.id, isSentence: widget.isSentence);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Hidden ${customWidget.name}'),
+                        duration: const Duration(seconds: 1),
+                        action: SnackBarAction(
+                          label: 'Undo',
+                          onPressed: () {
+                            ref
+                                .read(localAppTabConfigProvider.notifier)
+                                .toggleHideApp(customWidget.id, isSentence: widget.isSentence);
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 ListTile(
                   leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
                   title: const Text(
@@ -1853,8 +1881,13 @@ class _AndroidAppLauncherViewState
                           ...config.customWidgets.map((w) => w.id),
                         ];
 
+                        final targetOrder =
+                            config.getAppOrder(isSentence: targetIsSentence);
+                        final targetHidden =
+                            config.getHiddenAppIds(isSentence: targetIsSentence);
+
                         final orderedIds = List<String>.from(
-                          config.appOrder
+                          targetOrder
                               .where((id) => allAvailableIds.contains(id)),
                         );
                         for (final id in allAvailableIds) {
@@ -1864,10 +1897,10 @@ class _AndroidAppLauncherViewState
                         }
 
                         final visibleIds = orderedIds
-                            .where((id) => !config.hiddenAppIds.contains(id))
+                            .where((id) => !targetHidden.contains(id))
                             .toList();
                         final hiddenIds = orderedIds
-                            .where((id) => config.hiddenAppIds.contains(id))
+                            .where((id) => targetHidden.contains(id))
                             .toList();
 
                         return Column(
@@ -1996,7 +2029,10 @@ class _AndroidAppLauncherViewState
                                               localAppTabConfigProvider
                                                   .notifier,
                                             )
-                                            .setAppOrder(fullNewOrder);
+                                            .setAppOrder(
+                                              fullNewOrder,
+                                              isSentence: targetIsSentence,
+                                            );
                                       },
                                       itemBuilder: (context, index) {
                                         final itemId = visibleIds[index];
@@ -2169,7 +2205,11 @@ class _AndroidAppLauncherViewState
                                                         localAppTabConfigProvider
                                                             .notifier,
                                                       )
-                                                      .toggleHideApp(itemId);
+                                                      .toggleHideApp(
+                                                        itemId,
+                                                        isSentence:
+                                                            targetIsSentence,
+                                                      );
                                                 },
                                               ),
                                             ],
@@ -2234,7 +2274,10 @@ class _AndroidAppLauncherViewState
                                                   localAppTabConfigProvider
                                                       .notifier,
                                                 )
-                                                .toggleHideApp(itemId);
+                                                .toggleHideApp(
+                                                  itemId,
+                                                  isSentence: targetIsSentence,
+                                                );
                                           },
                                         ),
                                       );

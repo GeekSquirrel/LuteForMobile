@@ -184,8 +184,10 @@ class LocalAppTabConfig {
   final String? defaultTermAppId;
   final String? defaultSentenceAppId;
   final bool autoInvokeDefault;
-  final List<String> hiddenAppIds;
-  final List<String> appOrder;
+  final List<String> termHiddenAppIds;
+  final List<String> sentenceHiddenAppIds;
+  final List<String> termAppOrder;
+  final List<String> sentenceAppOrder;
   final String tabTitle;
   final List<CustomAppWidgetConfig> customWidgets;
 
@@ -195,16 +197,30 @@ class LocalAppTabConfig {
     this.defaultSentenceAppId,
     String? defaultAppId,
     this.autoInvokeDefault = true,
-    this.hiddenAppIds = const [],
-    this.appOrder = const [],
+    this.termHiddenAppIds = const [],
+    this.sentenceHiddenAppIds = const [],
+    List<String>? hiddenAppIds,
+    this.termAppOrder = const [],
+    this.sentenceAppOrder = const [],
+    List<String>? appOrder,
     this.tabTitle = 'Apps',
     this.customWidgets = const [],
-  }) : _legacyDefaultAppId = defaultAppId;
+  })  : _legacyDefaultAppId = defaultAppId,
+        _legacyHiddenAppIds = hiddenAppIds,
+        _legacyAppOrder = appOrder;
 
   final String? _legacyDefaultAppId;
+  final List<String>? _legacyHiddenAppIds;
+  final List<String>? _legacyAppOrder;
 
   /// Default app ID for terms (or fallback to legacy defaultAppId)
   String? get defaultAppId => defaultTermAppId ?? _legacyDefaultAppId;
+
+  /// Legacy getter for hiddenAppIds
+  List<String> get hiddenAppIds => getHiddenAppIds(isSentence: false);
+
+  /// Legacy getter for appOrder
+  List<String> get appOrder => getAppOrder(isSentence: false);
 
   /// Returns the default app ID for the given context (sentence or term).
   String? getDefaultAppId({bool isSentence = false}) {
@@ -214,26 +230,66 @@ class LocalAppTabConfig {
     return defaultTermAppId ?? _legacyDefaultAppId;
   }
 
+  /// Returns the hidden app IDs for the given context (sentence or term).
+  List<String> getHiddenAppIds({bool isSentence = false}) {
+    if (isSentence) {
+      if (sentenceHiddenAppIds.isNotEmpty) return sentenceHiddenAppIds;
+      return _legacyHiddenAppIds ?? const [];
+    }
+    if (termHiddenAppIds.isNotEmpty) return termHiddenAppIds;
+    return _legacyHiddenAppIds ?? const [];
+  }
+
+  /// Returns the app order for the given context (sentence or term).
+  List<String> getAppOrder({bool isSentence = false}) {
+    if (isSentence) {
+      if (sentenceAppOrder.isNotEmpty) return sentenceAppOrder;
+      return _legacyAppOrder ?? const [];
+    }
+    if (termAppOrder.isNotEmpty) return termAppOrder;
+    return _legacyAppOrder ?? const [];
+  }
+
   factory LocalAppTabConfig.fromJson(Map<String, dynamic> json) {
     final legacyDefault = json['defaultAppId'] as String?;
+    final legacyHidden = (json['hiddenAppIds'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        const [];
+    final legacyOrder = (json['appOrder'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        const [];
+
+    final termHidden = (json['termHiddenAppIds'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        legacyHidden;
+    final sentenceHidden = (json['sentenceHiddenAppIds'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        legacyHidden;
+
+    final termOrder = (json['termAppOrder'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        legacyOrder;
+    final sentenceOrder = (json['sentenceAppOrder'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        legacyOrder;
+
     return LocalAppTabConfig(
       enabled: json['enabled'] as bool? ?? true,
       defaultTermAppId: json['defaultTermAppId'] as String? ?? legacyDefault,
       defaultSentenceAppId: json['defaultSentenceAppId'] as String?,
       autoInvokeDefault: json['autoInvokeDefault'] as bool? ?? true,
-      hiddenAppIds:
-          (json['hiddenAppIds'] as List<dynamic>?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          const [],
-      appOrder:
-          (json['appOrder'] as List<dynamic>?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          const [],
+      termHiddenAppIds: termHidden,
+      sentenceHiddenAppIds: sentenceHidden,
+      termAppOrder: termOrder,
+      sentenceAppOrder: sentenceOrder,
       tabTitle: json['tabTitle'] as String? ?? 'Apps',
-      customWidgets:
-          (json['customWidgets'] as List<dynamic>?)
+      customWidgets: (json['customWidgets'] as List<dynamic>?)
               ?.map((e) =>
                   CustomAppWidgetConfig.fromJson(e as Map<String, dynamic>))
               .toList() ??
@@ -248,8 +304,12 @@ class LocalAppTabConfig {
       'defaultSentenceAppId': defaultSentenceAppId,
       'defaultAppId': defaultAppId,
       'autoInvokeDefault': autoInvokeDefault,
-      'hiddenAppIds': hiddenAppIds,
-      'appOrder': appOrder,
+      'termHiddenAppIds': getHiddenAppIds(isSentence: false),
+      'sentenceHiddenAppIds': getHiddenAppIds(isSentence: true),
+      'hiddenAppIds': getHiddenAppIds(isSentence: false),
+      'termAppOrder': getAppOrder(isSentence: false),
+      'sentenceAppOrder': getAppOrder(isSentence: true),
+      'appOrder': getAppOrder(isSentence: false),
       'tabTitle': tabTitle,
       'customWidgets': customWidgets.map((e) => e.toJson()).toList(),
     };
@@ -264,7 +324,11 @@ class LocalAppTabConfig {
     String? defaultAppId,
     bool clearDefaultAppId = false,
     bool? autoInvokeDefault,
+    List<String>? termHiddenAppIds,
+    List<String>? sentenceHiddenAppIds,
     List<String>? hiddenAppIds,
+    List<String>? termAppOrder,
+    List<String>? sentenceAppOrder,
     List<String>? appOrder,
     String? tabTitle,
     List<CustomAppWidgetConfig>? customWidgets,
@@ -273,19 +337,45 @@ class LocalAppTabConfig {
     final effectiveTerm = effectiveClearTerm
         ? null
         : (defaultTermAppId ??
-            (defaultAppId ?? (clearDefaultAppId ? null : this.defaultTermAppId ?? _legacyDefaultAppId)));
+            (defaultAppId ??
+                (clearDefaultAppId
+                    ? null
+                    : this.defaultTermAppId ?? _legacyDefaultAppId)));
 
     final effectiveSentence = clearDefaultSentenceAppId
         ? null
         : (defaultSentenceAppId ?? this.defaultSentenceAppId);
+
+    final effectiveTermHidden = termHiddenAppIds ??
+        (hiddenAppIds ??
+            (this.termHiddenAppIds.isNotEmpty
+                ? this.termHiddenAppIds
+                : (_legacyHiddenAppIds ?? const [])));
+    final effectiveSentenceHidden = sentenceHiddenAppIds ??
+        (hiddenAppIds ??
+            (this.sentenceHiddenAppIds.isNotEmpty
+                ? this.sentenceHiddenAppIds
+                : (_legacyHiddenAppIds ?? const [])));
+    final effectiveTermOrder = termAppOrder ??
+        (appOrder ??
+            (this.termAppOrder.isNotEmpty
+                ? this.termAppOrder
+                : (_legacyAppOrder ?? const [])));
+    final effectiveSentenceOrder = sentenceAppOrder ??
+        (appOrder ??
+            (this.sentenceAppOrder.isNotEmpty
+                ? this.sentenceAppOrder
+                : (_legacyAppOrder ?? const [])));
 
     return LocalAppTabConfig(
       enabled: enabled ?? this.enabled,
       defaultTermAppId: effectiveTerm,
       defaultSentenceAppId: effectiveSentence,
       autoInvokeDefault: autoInvokeDefault ?? this.autoInvokeDefault,
-      hiddenAppIds: hiddenAppIds ?? this.hiddenAppIds,
-      appOrder: appOrder ?? this.appOrder,
+      termHiddenAppIds: effectiveTermHidden,
+      sentenceHiddenAppIds: effectiveSentenceHidden,
+      termAppOrder: effectiveTermOrder,
+      sentenceAppOrder: effectiveSentenceOrder,
       tabTitle: tabTitle ?? this.tabTitle,
       customWidgets: customWidgets ?? this.customWidgets,
     );
@@ -301,8 +391,14 @@ class LocalAppTabConfig {
           defaultSentenceAppId == other.defaultSentenceAppId &&
           defaultAppId == other.defaultAppId &&
           autoInvokeDefault == other.autoInvokeDefault &&
-          listEquals(hiddenAppIds, other.hiddenAppIds) &&
-          listEquals(appOrder, other.appOrder) &&
+          listEquals(getHiddenAppIds(isSentence: false),
+              other.getHiddenAppIds(isSentence: false)) &&
+          listEquals(getHiddenAppIds(isSentence: true),
+              other.getHiddenAppIds(isSentence: true)) &&
+          listEquals(getAppOrder(isSentence: false),
+              other.getAppOrder(isSentence: false)) &&
+          listEquals(getAppOrder(isSentence: true),
+              other.getAppOrder(isSentence: true)) &&
           tabTitle == other.tabTitle &&
           listEquals(customWidgets, other.customWidgets);
 
@@ -313,8 +409,10 @@ class LocalAppTabConfig {
       defaultSentenceAppId.hashCode ^
       defaultAppId.hashCode ^
       autoInvokeDefault.hashCode ^
-      hiddenAppIds.hashCode ^
-      appOrder.hashCode ^
+      getHiddenAppIds(isSentence: false).hashCode ^
+      getHiddenAppIds(isSentence: true).hashCode ^
+      getAppOrder(isSentence: false).hashCode ^
+      getAppOrder(isSentence: true).hashCode ^
       tabTitle.hashCode ^
       customWidgets.hashCode;
 }

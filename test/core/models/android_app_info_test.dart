@@ -4,57 +4,59 @@ import 'package:lute_for_mobile/core/models/android_app_info.dart';
 void main() {
   group('AndroidAppInfo', () {
     test('fromJson and toJson should round-trip correctly', () {
-      final app = AndroidAppInfo(
-        packageName: 'com.google.android.apps.translate',
-        activityName: 'com.google.android.apps.translate.TranslateActivity',
-        label: 'Google Translate',
-        iconBase64:
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-        actionType: 'PROCESS_TEXT',
-      );
+      final json = {
+        'packageName': 'com.eudic.eudic',
+        'activityName': 'com.eudic.eudic.MainActivity',
+        'label': '欧路词典',
+        'iconBase64': 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        'actionType': 'PROCESS_TEXT',
+      };
 
-      final json = app.toJson();
-      final fromJson = AndroidAppInfo.fromJson(json);
+      final app = AndroidAppInfo.fromJson(json);
 
-      expect(fromJson.packageName, equals(app.packageName));
-      expect(fromJson.activityName, equals(app.activityName));
-      expect(fromJson.label, equals(app.label));
-      expect(fromJson.iconBase64, equals(app.iconBase64));
-      expect(fromJson.actionType, equals('PROCESS_TEXT'));
-      expect(
-        fromJson.id,
-        equals(
-          'com.google.android.apps.translate/com.google.android.apps.translate.TranslateActivity',
-        ),
-      );
-      expect(fromJson, equals(app));
+      expect(app.packageName, equals('com.eudic.eudic'));
+      expect(app.activityName, equals('com.eudic.eudic.MainActivity'));
+      expect(app.label, equals('欧路词典'));
+      expect(app.id, equals('com.eudic.eudic/com.eudic.eudic.MainActivity'));
+      expect(app.actionType, equals('PROCESS_TEXT'));
+      expect(app.iconBase64, isNotNull);
+
+      final outputJson = app.toJson();
+      expect(outputJson['packageName'], equals('com.eudic.eudic'));
+      expect(outputJson['activityName'], equals('com.eudic.eudic.MainActivity'));
+      expect(outputJson['label'], equals('欧路词典'));
+      expect(outputJson['actionType'], equals('PROCESS_TEXT'));
+      expect(outputJson['iconBase64'], equals(json['iconBase64']));
     });
 
     test('copyWith works correctly', () {
       const app = AndroidAppInfo(
-        packageName: 'com.eudic.eudic',
-        activityName: 'com.eudic.eudic.MainActivity',
-        label: 'Eudic',
+        packageName: 'com.test.app',
+        activityName: 'com.test.app.MainActivity',
+        label: 'Test App',
       );
 
-      final updated = app.copyWith(label: '欧路词典');
-      expect(updated.label, equals('欧路词典'));
-      expect(updated.packageName, equals('com.eudic.eudic'));
-      expect(
-        updated.id,
-        equals('com.eudic.eudic/com.eudic.eudic.MainActivity'),
+      final modified = app.copyWith(
+        label: 'Updated App',
+        actionType: 'SEND',
       );
+
+      expect(modified.packageName, equals('com.test.app'));
+      expect(modified.activityName, equals('com.test.app.MainActivity'));
+      expect(modified.label, equals('Updated App'));
+      expect(modified.actionType, equals('SEND'));
+      expect(modified.id, equals('com.test.app/com.test.app.MainActivity'));
     });
   });
 
   group('CustomAppWidgetConfig', () {
     test('resolveText properly substitutes [LUTE] placeholder', () {
       const widgetWithPlaceholder = CustomAppWidgetConfig(
-        id: 'custom_1',
-        name: '翻译为中文',
+        id: 'w1',
+        name: 'Translate',
         template: '翻译 [LUTE]',
-        targetAppId: 'com.eudic.eudic/main',
-        targetAppLabel: '欧路词典',
+        targetAppId: 'com.test.app/main',
+        targetAppLabel: 'Test App',
       );
 
       expect(
@@ -62,43 +64,43 @@ void main() {
         equals('翻译 hello'),
       );
 
-      const widgetWithMultiplePlaceholder = CustomAppWidgetConfig(
-        id: 'custom_2',
-        name: '多重占位',
-        template: '词汇:[LUTE] 含义:[LUTE]',
-        targetAppId: 'com.google/main',
-        targetAppLabel: 'Google',
+      const widgetMultiplePlaceholders = CustomAppWidgetConfig(
+        id: 'w2',
+        name: 'Define and Example',
+        template: '[LUTE] - 请解释 [LUTE] 的用法',
+        targetAppId: 'com.test.app/main',
+        targetAppLabel: 'Test App',
       );
 
       expect(
-        widgetWithMultiplePlaceholder.resolveText('apple'),
-        equals('词汇:apple 含义:apple'),
+        widgetMultiplePlaceholders.resolveText('apple'),
+        equals('apple - 请解释 apple 的用法'),
       );
 
-      const widgetWithoutPlaceholder = CustomAppWidgetConfig(
-        id: 'custom_3',
-        name: '无占位符',
-        template: 'Define:',
-        targetAppId: 'com.google/main',
-        targetAppLabel: 'Google',
+      const widgetNoPlaceholder = CustomAppWidgetConfig(
+        id: 'w3',
+        name: 'Lookup',
+        template: '查词',
+        targetAppId: 'com.test.app/main',
+        targetAppLabel: 'Test App',
       );
 
       expect(
-        widgetWithoutPlaceholder.resolveText('apple'),
-        equals('Define: apple'),
+        widgetNoPlaceholder.resolveText('book'),
+        equals('查词 book'),
       );
 
       const widgetEmptyTemplate = CustomAppWidgetConfig(
-        id: 'custom_4',
-        name: '空模板',
+        id: 'w4',
+        name: 'Empty',
         template: '',
-        targetAppId: 'com.google/main',
-        targetAppLabel: 'Google',
+        targetAppId: 'com.test.app/main',
+        targetAppLabel: 'Test App',
       );
 
       expect(
-        widgetEmptyTemplate.resolveText('apple'),
-        equals('apple'),
+        widgetEmptyTemplate.resolveText('world'),
+        equals('world'),
       );
     });
 
@@ -139,13 +141,15 @@ void main() {
       expect(config.getDefaultAppId(isSentence: false), isNull);
       expect(config.getDefaultAppId(isSentence: true), isNull);
       expect(config.autoInvokeDefault, isTrue);
-      expect(config.hiddenAppIds, isEmpty);
-      expect(config.appOrder, isEmpty);
+      expect(config.getHiddenAppIds(isSentence: false), isEmpty);
+      expect(config.getHiddenAppIds(isSentence: true), isEmpty);
+      expect(config.getAppOrder(isSentence: false), isEmpty);
+      expect(config.getAppOrder(isSentence: true), isEmpty);
       expect(config.tabTitle, equals('Apps'));
       expect(config.customWidgets, isEmpty);
     });
 
-    test('fromJson and toJson round-trip with customWidgets', () {
+    test('fromJson and toJson round-trip with independent term and sentence config', () {
       const customWidget = CustomAppWidgetConfig(
         id: 'custom_1',
         name: '翻译为中文',
@@ -159,11 +163,10 @@ void main() {
         defaultTermAppId: 'custom_1',
         defaultSentenceAppId: 'com.google.android.apps.translate/main',
         autoInvokeDefault: false,
-        hiddenAppIds: ['com.bad.app/main'],
-        appOrder: [
-          'custom_1',
-          'com.eudic.eudic/main',
-        ],
+        termHiddenAppIds: ['com.bad.app/main'],
+        sentenceHiddenAppIds: ['com.another.bad.app/main'],
+        termAppOrder: ['custom_1', 'com.eudic.eudic/main'],
+        sentenceAppOrder: ['com.google.android.apps.translate/main', 'custom_1'],
         tabTitle: 'Local Dict',
         customWidgets: [customWidget],
       );
@@ -182,15 +185,21 @@ void main() {
         fromJson.getDefaultAppId(isSentence: true),
         equals('com.google.android.apps.translate/main'),
       );
+      expect(fromJson.getHiddenAppIds(isSentence: false), equals(['com.bad.app/main']));
+      expect(fromJson.getHiddenAppIds(isSentence: true), equals(['com.another.bad.app/main']));
+      expect(fromJson.getAppOrder(isSentence: false), equals(['custom_1', 'com.eudic.eudic/main']));
+      expect(fromJson.getAppOrder(isSentence: true), equals(['com.google.android.apps.translate/main', 'custom_1']));
       expect(fromJson.customWidgets.length, equals(1));
       expect(fromJson.customWidgets.first.name, equals('翻译为中文'));
       expect(fromJson, equals(config));
     });
 
-    test('fromJson supports legacy defaultAppId format', () {
+    test('fromJson supports legacy defaultAppId, hiddenAppIds, and appOrder format', () {
       final legacyJson = {
         'enabled': true,
         'defaultAppId': 'com.legacy.app/main',
+        'hiddenAppIds': ['com.legacy.hidden/main'],
+        'appOrder': ['com.legacy.app/main', 'com.other.app/main'],
         'autoInvokeDefault': true,
       };
 
@@ -202,6 +211,37 @@ void main() {
         equals('com.legacy.app/main'),
       );
       expect(config.defaultSentenceAppId, isNull);
+      expect(config.getHiddenAppIds(isSentence: false), equals(['com.legacy.hidden/main']));
+      expect(config.getHiddenAppIds(isSentence: true), equals(['com.legacy.hidden/main']));
+      expect(config.getAppOrder(isSentence: false), equals(['com.legacy.app/main', 'com.other.app/main']));
+      expect(config.getAppOrder(isSentence: true), equals(['com.legacy.app/main', 'com.other.app/main']));
+    });
+
+    test('copyWith can modify term and sentence hidden & order independently', () {
+      const config = LocalAppTabConfig(
+        termHiddenAppIds: ['term_hidden_1'],
+        sentenceHiddenAppIds: ['sent_hidden_1'],
+        termAppOrder: ['term_app_1', 'term_app_2'],
+        sentenceAppOrder: ['sent_app_1', 'sent_app_2'],
+      );
+
+      final updatedTerm = config.copyWith(
+        termHiddenAppIds: ['term_hidden_new'],
+        termAppOrder: ['term_app_2', 'term_app_1'],
+      );
+      expect(updatedTerm.getHiddenAppIds(isSentence: false), equals(['term_hidden_new']));
+      expect(updatedTerm.getHiddenAppIds(isSentence: true), equals(['sent_hidden_1']));
+      expect(updatedTerm.getAppOrder(isSentence: false), equals(['term_app_2', 'term_app_1']));
+      expect(updatedTerm.getAppOrder(isSentence: true), equals(['sent_app_1', 'sent_app_2']));
+
+      final updatedSentence = config.copyWith(
+        sentenceHiddenAppIds: ['sent_hidden_new'],
+        sentenceAppOrder: ['sent_app_2', 'sent_app_1'],
+      );
+      expect(updatedSentence.getHiddenAppIds(isSentence: false), equals(['term_hidden_1']));
+      expect(updatedSentence.getHiddenAppIds(isSentence: true), equals(['sent_hidden_new']));
+      expect(updatedSentence.getAppOrder(isSentence: false), equals(['term_app_1', 'term_app_2']));
+      expect(updatedSentence.getAppOrder(isSentence: true), equals(['sent_app_2', 'sent_app_1']));
     });
 
     test('copyWith can clear defaultTermAppId and defaultSentenceAppId independently', () {
