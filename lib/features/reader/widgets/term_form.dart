@@ -16,6 +16,8 @@ import '../../../core/network/dictionary_service.dart';
 import '../../../core/widgets/lute_image.dart';
 import '../providers/sentence_tts_provider.dart';
 import '../../../core/providers/ai_provider.dart';
+import '../../../core/providers/android_app_provider.dart';
+import 'android_app_launcher_view.dart';
 import 'parent_search.dart';
 import 'dictionary_view.dart';
 import '../providers/current_book_provider.dart';
@@ -68,6 +70,7 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
   StateSetter? _imageDialogSetState;
   List<String> _pendingAITranslations = [];
   String? _lastAutoFetchedTermKey;
+  bool _hasAutoInvokedLocalApp = false;
 
   @override
   void initState() {
@@ -121,6 +124,9 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     }
     if (oldWidget.termForm.parents != widget.termForm.parents) {
       setState(() {});
+    }
+    if (oldWidget.termForm.term != widget.termForm.term) {
+      _hasAutoInvokedLocalApp = false;
     }
     if (oldWidget.termForm.term != widget.termForm.term ||
         oldWidget.termForm.termId != widget.termForm.termId ||
@@ -359,12 +365,19 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(termFormSettingsProvider);
+    final appService = ref.watch(androidAppServiceProvider);
+    final appConfig = ref.watch(localAppTabConfigProvider);
+    final shouldShowLocalApps =
+        appService.isSupportedPlatform && appConfig.enabled;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeInOut,
       constraints: _isDictionaryOpen
           ? null
-          : const BoxConstraints(maxHeight: 600),
+          : BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.85,
+            ),
       child: _isDictionaryOpen
           ? Container(
               constraints: BoxConstraints(
@@ -420,6 +433,18 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
                     ],
                     const SizedBox(height: 12),
                     _buildParentsSection(context),
+                    if (shouldShowLocalApps) ...[
+                      const SizedBox(height: 12),
+                      AndroidAppLauncherView(
+                        text: widget.termForm.term,
+                        isSentence: false,
+                        isInline: true,
+                        autoInvoke: !_hasAutoInvokedLocalApp,
+                        onAutoInvoked: () {
+                          _hasAutoInvokedLocalApp = true;
+                        },
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     _buildButtons(context),
                   ],

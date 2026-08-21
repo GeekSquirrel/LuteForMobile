@@ -10,14 +10,20 @@ class AndroidAppLauncherView extends ConsumerStatefulWidget {
   final String text;
   final bool isSentence;
   final bool isActive;
+  final bool isInline;
+  final bool autoInvoke;
   final VoidCallback? onOpenTabReorder;
+  final VoidCallback? onAutoInvoked;
 
   const AndroidAppLauncherView({
     super.key,
     required this.text,
     this.isSentence = false,
     this.isActive = true,
+    this.isInline = false,
+    this.autoInvoke = true,
     this.onOpenTabReorder,
+    this.onAutoInvoked,
   });
 
   @override
@@ -59,7 +65,7 @@ class _AndroidAppLauncherViewState
   }
 
   Future<void> _checkAndAutoInvoke() async {
-    if (!mounted || !widget.isActive) return;
+    if (!mounted || !widget.isActive || !widget.autoInvoke) return;
     if (widget.text.trim().isEmpty) return;
     if (_hasAutoInvokedForCurrentActivation) return;
 
@@ -67,7 +73,7 @@ class _AndroidAppLauncherViewState
 
     final service = ref.read(androidAppServiceProvider);
     final config = await service.getAppConfig();
-    if (!mounted || !widget.isActive || currentCount != _invokeCounter) return;
+    if (!mounted || !widget.isActive || !widget.autoInvoke || currentCount != _invokeCounter) return;
 
     final defaultAppId = config.getDefaultAppId(isSentence: widget.isSentence);
     if (!config.autoInvokeDefault || defaultAppId == null) {
@@ -75,13 +81,14 @@ class _AndroidAppLauncherViewState
     }
 
     final apps = await service.getInstalledApps();
-    if (!mounted || !widget.isActive || currentCount != _invokeCounter) return;
+    if (!mounted || !widget.isActive || !widget.autoInvoke || currentCount != _invokeCounter) return;
 
     final defaultApp =
         apps.where((a) => a.id == defaultAppId).firstOrNull;
     if (defaultApp != null && !config.hiddenAppIds.contains(defaultApp.id)) {
       if (_hasAutoInvokedForCurrentActivation) return;
       _hasAutoInvokedForCurrentActivation = true;
+      widget.onAutoInvoked?.call();
       await service.launchApp(defaultApp, widget.text);
     }
   }
@@ -121,6 +128,7 @@ class _AndroidAppLauncherViewState
       final prevDefault = prev?.getDefaultAppId(isSentence: widget.isSentence);
       final nextDefault = next.getDefaultAppId(isSentence: widget.isSentence);
       if (widget.isActive &&
+          widget.autoInvoke &&
           next.autoInvokeDefault &&
           nextDefault != null &&
           (prevDefault != nextDefault ||
@@ -129,6 +137,10 @@ class _AndroidAppLauncherViewState
         _checkAndAutoInvoke();
       }
     });
+
+    if (widget.isInline) {
+      return _buildInlineView(context, appsAsync, config);
+    }
 
     return Column(
       children: [
@@ -160,6 +172,356 @@ class _AndroidAppLauncherViewState
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildInlineView(
+    BuildContext context,
+    AsyncValue<List<AndroidAppInfo>> appsAsync,
+    LocalAppTabConfig config,
+  ) {
+    final currentDefaultId =
+        config.getDefaultAppId(isSentence: widget.isSentence);
+    String? defaultAppLabel;
+    if (currentDefaultId != null) {
+      appsAsync.whenData((apps) {
+        final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
+        if (app != null) {
+          defaultAppLabel = app.label;
+        }
+      });
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: context.appColorScheme.background.surfaceContainerHighest
+            .withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: context.appColorScheme.border.dividerColor.withValues(alpha: 0.4),
+          width: 1,
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header row
+          Row(
+            children: [
+              Icon(
+                Icons.phone_android,
+                size: 16,
+                color: context.m3Primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                config.tabTitle.isNotEmpty ? config.tabTitle : 'Apps',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: context.appColorScheme.text.primary,
+                    ),
+              ),
+              if (defaultAppLabel != null) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: context.m3Primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.star,
+                          size: 11,
+                          color: Colors.amber,
+                        ),
+                        const SizedBox(width: 3),
+                        Flexible(
+                          child: Text(
+                            defaultAppLabel!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: context.m3Primary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              const Spacer(),
+              Tooltip(
+                message: config.autoInvokeDefault
+                    ? 'Auto-launch on open: ON'
+                    : 'Auto-launch on open: OFF',
+                child: InkWell(
+                  onTap: () {
+                    ref
+                        .read(localAppTabConfigProvider.notifier)
+                        .toggleAutoInvoke(!config.autoInvokeDefault);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          !config.autoInvokeDefault
+                              ? 'Auto-launch enabled when opening term window'
+                              : 'Auto-launch disabled',
+                        ),
+                        duration: const Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Icon(
+                      config.autoInvokeDefault
+                          ? Icons.bolt
+                          : Icons.bolt_outlined,
+                      size: 18,
+                      color: config.autoInvokeDefault
+                          ? context.m3Primary
+                          : context.appColorScheme.text.primary
+                              .withValues(alpha: 0.4),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Tooltip(
+                message: 'Manage & Reorder Apps',
+                child: InkWell(
+                  onTap: () => _showManageAppsSheet(context),
+                  borderRadius: BorderRadius.circular(16),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Icon(Icons.tune, size: 18),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Tooltip(
+                message: 'Refresh Apps',
+                child: InkWell(
+                  onTap: () => ref.invalidate(installedAppsProvider),
+                  borderRadius: BorderRadius.circular(16),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Icon(Icons.refresh, size: 18),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // App list content
+          appsAsync.when(
+            loading: () => const SizedBox(
+              height: 64,
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+            error: (e, _) => SizedBox(
+              height: 40,
+              child: Center(
+                child: Text(
+                  'Failed to load apps: $e',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: context.error),
+                ),
+              ),
+            ),
+            data: (allApps) {
+              if (allApps.isEmpty) {
+                return SizedBox(
+                  height: 40,
+                  child: Center(
+                    child: Text(
+                      'No text processing apps found',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: context.appColorScheme.text.primary
+                                .withValues(alpha: 0.5),
+                          ),
+                    ),
+                  ),
+                );
+              }
+
+              if (widget.isActive && !_hasAutoInvokedForCurrentActivation) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _checkAndAutoInvoke();
+                });
+              }
+
+              final visibleApps = _getSortedVisibleApps(allApps, config);
+              if (visibleApps.isEmpty) {
+                return SizedBox(
+                  height: 40,
+                  child: Center(
+                    child: TextButton.icon(
+                      onPressed: () => _showManageAppsSheet(context),
+                      icon: const Icon(Icons.tune, size: 16),
+                      label: const Text('All apps hidden. Tap to manage'),
+                    ),
+                  ),
+                );
+              }
+
+              return SizedBox(
+                height: 72,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: visibleApps.length,
+                  separatorBuilder: (context, index) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final app = visibleApps[index];
+                    final isDefault = app.id == currentDefaultId;
+
+                    return _buildInlineAppItem(
+                      context,
+                      app,
+                      isDefault,
+                      config,
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInlineAppItem(
+    BuildContext context,
+    AndroidAppInfo app,
+    bool isDefault,
+    LocalAppTabConfig config,
+  ) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          ref.read(androidAppServiceProvider).launchApp(app, widget.text);
+        },
+        onLongPress: () => _showAppOptionsSheet(context, app, config),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          width: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isDefault
+                  ? context.m3Primary
+                  : context.appColorScheme.border.dividerColor
+                      .withValues(alpha: 0.3),
+              width: isDefault ? 1.5 : 1,
+            ),
+            color: isDefault
+                ? context.m3Primary.withValues(alpha: 0.1)
+                : context.appColorScheme.background.surface
+                    .withValues(alpha: 0.5),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  _buildInlineAppIcon(app.iconBase64),
+                  if (isDefault)
+                    Positioned(
+                      right: -4,
+                      top: -4,
+                      child: Container(
+                        padding: const EdgeInsets.all(1.5),
+                        decoration: BoxDecoration(
+                          color: context.m3Primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.star,
+                          size: 9,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                app.label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontSize: 10,
+                      fontWeight:
+                          isDefault ? FontWeight.bold : FontWeight.w500,
+                      color: isDefault
+                          ? context.m3Primary
+                          : context.appColorScheme.text.primary,
+                    ),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInlineAppIcon(String? iconBase64) {
+    if (iconBase64 != null && iconBase64.isNotEmpty) {
+      try {
+        final bytes = base64Decode(iconBase64);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: Image.memory(
+            bytes,
+            width: 32,
+            height: 32,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) =>
+                _buildInlineFallbackIcon(),
+          ),
+        );
+      } catch (_) {
+        return _buildInlineFallbackIcon();
+      }
+    }
+    return _buildInlineFallbackIcon();
+  }
+
+  Widget _buildInlineFallbackIcon() {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: context.m3Primary.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Icon(Icons.open_in_new, size: 18, color: context.m3Primary),
     );
   }
 

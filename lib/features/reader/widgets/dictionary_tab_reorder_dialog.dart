@@ -86,8 +86,8 @@ class _DictionaryTabReorderDialogState
       );
     }
 
-    // Add local app tab if on Android or supported
-    if (appService.isSupportedPlatform) {
+    // Add local app tab if on Android or supported AND configuring sentence tabs
+    if (appService.isSupportedPlatform && widget.isSentence) {
       final config = ref.read(localAppTabConfigProvider);
       allItemsMap[AndroidAppService.localAppsTabId] = TabOrderItem(
         id: AndroidAppService.localAppsTabId,

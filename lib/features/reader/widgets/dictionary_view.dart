@@ -95,26 +95,17 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
     if (!mounted) return;
 
     final appService = ref.read(androidAppServiceProvider);
-    final config = ref.read(localAppTabConfigProvider);
     final savedOrder = await appService.getTabOrder(
       widget.languageId,
       isSentence: false,
     );
 
-    final localAppSource = appService.isSupportedPlatform
-        ? DictionarySource(
-            name: config.tabTitle.isNotEmpty ? config.tabTitle : 'Apps',
-            urlTemplate: '',
-            isAndroidApp: true,
-          )
-        : null;
-
     final ordered = appService.applyTabOrder<DictionarySource>(
       originalItems: widget.dictionaries,
       getId: (d) => d.name,
       savedOrder: savedOrder,
-      localAppItem: localAppSource,
-      includeLocalApp: config.enabled && appService.isSupportedPlatform,
+      localAppItem: null,
+      includeLocalApp: false,
     );
 
     int targetPage = _currentPage;
