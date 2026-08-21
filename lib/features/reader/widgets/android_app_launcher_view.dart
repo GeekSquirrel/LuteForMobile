@@ -69,7 +69,8 @@ class _AndroidAppLauncherViewState
     final config = await service.getAppConfig();
     if (!mounted || !widget.isActive || currentCount != _invokeCounter) return;
 
-    if (!config.autoInvokeDefault || config.defaultAppId == null) {
+    final defaultAppId = config.getDefaultAppId(isSentence: widget.isSentence);
+    if (!config.autoInvokeDefault || defaultAppId == null) {
       return;
     }
 
@@ -77,7 +78,7 @@ class _AndroidAppLauncherViewState
     if (!mounted || !widget.isActive || currentCount != _invokeCounter) return;
 
     final defaultApp =
-        apps.where((a) => a.id == config.defaultAppId).firstOrNull;
+        apps.where((a) => a.id == defaultAppId).firstOrNull;
     if (defaultApp != null && !config.hiddenAppIds.contains(defaultApp.id)) {
       if (_hasAutoInvokedForCurrentActivation) return;
       _hasAutoInvokedForCurrentActivation = true;
@@ -117,10 +118,12 @@ class _AndroidAppLauncherViewState
     final config = ref.watch(localAppTabConfigProvider);
 
     ref.listen<LocalAppTabConfig>(localAppTabConfigProvider, (prev, next) {
+      final prevDefault = prev?.getDefaultAppId(isSentence: widget.isSentence);
+      final nextDefault = next.getDefaultAppId(isSentence: widget.isSentence);
       if (widget.isActive &&
           next.autoInvokeDefault &&
-          next.defaultAppId != null &&
-          (prev?.defaultAppId != next.defaultAppId ||
+          nextDefault != null &&
+          (prevDefault != nextDefault ||
               prev?.autoInvokeDefault != next.autoInvokeDefault)) {
         _hasAutoInvokedForCurrentActivation = false;
         _checkAndAutoInvoke();
@@ -162,15 +165,23 @@ class _AndroidAppLauncherViewState
 
   Widget _buildToolbar(BuildContext context, LocalAppTabConfig config) {
     final appsAsync = ref.watch(installedAppsProvider);
+    final currentDefaultId =
+        config.getDefaultAppId(isSentence: widget.isSentence);
     String? defaultAppLabel;
-    if (config.defaultAppId != null) {
+    if (currentDefaultId != null) {
       appsAsync.whenData((apps) {
-        final app = apps.where((a) => a.id == config.defaultAppId).firstOrNull;
+        final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
         if (app != null) {
           defaultAppLabel = app.label;
         }
       });
     }
+
+    final defaultText = defaultAppLabel != null
+        ? (widget.isSentence
+            ? 'Default (Sentence): $defaultAppLabel'
+            : 'Default (Term): $defaultAppLabel')
+        : 'Tap app to launch';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -187,9 +198,7 @@ class _AndroidAppLauncherViewState
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              defaultAppLabel != null
-                  ? 'Default: $defaultAppLabel'
-                  : 'Tap app to launch',
+              defaultText,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                     color: context.appColorScheme.text.primary,
@@ -275,6 +284,8 @@ class _AndroidAppLauncherViewState
     return LayoutBuilder(
       builder: (context, constraints) {
         final crossAxisCount = (constraints.maxWidth / 96).clamp(3, 8).toInt();
+        final currentDefaultId =
+            config.getDefaultAppId(isSentence: widget.isSentence);
 
         return GridView.builder(
           padding: const EdgeInsets.all(12),
@@ -287,9 +298,9 @@ class _AndroidAppLauncherViewState
           itemCount: visibleApps.length,
           itemBuilder: (context, index) {
             final app = visibleApps[index];
-            final isDefault = app.id == config.defaultAppId;
+            final isDefault = app.id == currentDefaultId;
 
-            return _buildAppItem(context, app, isDefault);
+            return _buildAppItem(context, app, isDefault, config);
           },
         );
       },
@@ -300,6 +311,7 @@ class _AndroidAppLauncherViewState
     BuildContext context,
     AndroidAppInfo app,
     bool isDefault,
+    LocalAppTabConfig config,
   ) {
     return Material(
       color: Colors.transparent,
@@ -307,7 +319,7 @@ class _AndroidAppLauncherViewState
         onTap: () {
           ref.read(androidAppServiceProvider).launchApp(app, widget.text);
         },
-        onLongPress: () => _showAppOptionsSheet(context, app, isDefault),
+        onLongPress: () => _showAppOptionsSheet(context, app, config),
         borderRadius: BorderRadius.circular(12),
         child: Container(
           decoration: BoxDecoration(
@@ -355,10 +367,12 @@ class _AndroidAppLauncherViewState
               const SizedBox(height: 6),
               Text(
                 app.label,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontSize: 11,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       fontWeight:
                           isDefault ? FontWeight.bold : FontWeight.w500,
+                      color: isDefault
+                          ? context.m3Primary
+                          : context.appColorScheme.text.primary,
                     ),
                 textAlign: TextAlign.center,
                 maxLines: 2,
@@ -408,14 +422,85 @@ class _AndroidAppLauncherViewState
   void _showAppOptionsSheet(
     BuildContext context,
     AndroidAppInfo app,
-    bool isDefault,
+    LocalAppTabConfig config,
   ) {
+    final isTermDefault =
+        app.id == config.getDefaultAppId(isSentence: false);
+    final isSentenceDefault =
+        app.id == config.getDefaultAppId(isSentence: true);
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (sheetContext) {
+        final termTile = ListTile(
+          leading: Icon(
+            isTermDefault ? Icons.star : Icons.star_border,
+            color: isTermDefault ? Colors.amber : null,
+          ),
+          title: Text(
+            isTermDefault
+                ? 'Clear Default for Terms'
+                : 'Set as Default for Terms',
+          ),
+          subtitle: Text(
+            isTermDefault
+                ? 'Currently auto-invoked when looking up terms'
+                : 'Auto-invoke this app when looking up terms',
+          ),
+          onTap: () {
+            Navigator.pop(sheetContext);
+            ref
+                .read(localAppTabConfigProvider.notifier)
+                .setDefaultApp(isTermDefault ? null : app.id, isSentence: false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  isTermDefault
+                      ? 'Cleared default app for terms'
+                      : 'Set ${app.label} as default app for terms',
+                ),
+                duration: const Duration(seconds: 1),
+              ),
+            );
+          },
+        );
+
+        final sentenceTile = ListTile(
+          leading: Icon(
+            isSentenceDefault ? Icons.star : Icons.star_border,
+            color: isSentenceDefault ? Colors.amber : null,
+          ),
+          title: Text(
+            isSentenceDefault
+                ? 'Clear Default for Sentences'
+                : 'Set as Default for Sentences',
+          ),
+          subtitle: Text(
+            isSentenceDefault
+                ? 'Currently auto-invoked when looking up sentences'
+                : 'Auto-invoke this app when looking up sentences',
+          ),
+          onTap: () {
+            Navigator.pop(sheetContext);
+            ref
+                .read(localAppTabConfigProvider.notifier)
+                .setDefaultApp(isSentenceDefault ? null : app.id, isSentence: true);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  isSentenceDefault
+                      ? 'Cleared default app for sentences'
+                      : 'Set ${app.label} as default app for sentences',
+                ),
+                duration: const Duration(seconds: 1),
+              ),
+            );
+          },
+        );
+
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -441,36 +526,13 @@ class _AndroidAppLauncherViewState
                         .launchApp(app, widget.text);
                   },
                 ),
-                ListTile(
-                  leading: Icon(
-                    isDefault ? Icons.star_border : Icons.star,
-                    color: isDefault ? null : Colors.amber,
-                  ),
-                  title: Text(
-                    isDefault ? 'Clear Default' : 'Set as Default App',
-                  ),
-                  subtitle: Text(
-                    isDefault
-                        ? 'App is currently auto-invoked on tab switch'
-                        : 'Auto-invoke this app when switching to Local App tab',
-                  ),
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    ref
-                        .read(localAppTabConfigProvider.notifier)
-                        .setDefaultApp(isDefault ? null : app.id);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          isDefault
-                              ? 'Cleared default app'
-                              : 'Set ${app.label} as default app',
-                        ),
-                        duration: const Duration(seconds: 1),
-                      ),
-                    );
-                  },
-                ),
+                if (!widget.isSentence) ...[
+                  termTile,
+                  sentenceTile,
+                ] else ...[
+                  sentenceTile,
+                  termTile,
+                ],
                 ListTile(
                   leading: const Icon(Icons.visibility_off_outlined),
                   title: const Text('Hide this App'),
@@ -512,264 +574,326 @@ class _AndroidAppLauncherViewState
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (sheetContext) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.7,
-          minChildSize: 0.4,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (context, scrollController) {
-            return Consumer(
-              builder: (context, ref, _) {
-                final appsAsync = ref.watch(installedAppsProvider);
-                final config = ref.watch(localAppTabConfigProvider);
+        bool targetIsSentence = widget.isSentence;
 
-                return appsAsync.when(
-                  loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => Center(child: Text('Error: $e')),
-                  data: (allApps) {
-                    final appMap = {for (var a in allApps) a.id: a};
+        return StatefulBuilder(
+          builder: (sheetInnerContext, setSheetState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.75,
+              minChildSize: 0.4,
+              maxChildSize: 0.95,
+              expand: false,
+              builder: (context, scrollController) {
+                return Consumer(
+                  builder: (context, ref, _) {
+                    final appsAsync = ref.watch(installedAppsProvider);
+                    final config = ref.watch(localAppTabConfigProvider);
 
-                    // Current order of all apps
-                    final orderedIds = List<String>.from(
-                      config.appOrder.where((id) => appMap.containsKey(id)),
-                    );
-                    for (final app in allApps) {
-                      if (!orderedIds.contains(app.id)) {
-                        orderedIds.add(app.id);
-                      }
-                    }
+                    return appsAsync.when(
+                      loading: () => const Center(child: CircularProgressIndicator()),
+                      error: (e, _) => Center(child: Text('Error: $e')),
+                      data: (allApps) {
+                        final appMap = {for (var a in allApps) a.id: a};
 
-                    final visibleIds = orderedIds
-                        .where((id) => !config.hiddenAppIds.contains(id))
-                        .toList();
-                    final hiddenIds = orderedIds
-                        .where((id) => config.hiddenAppIds.contains(id))
-                        .toList();
+                        // Current order of all apps
+                        final orderedIds = List<String>.from(
+                          config.appOrder.where((id) => appMap.containsKey(id)),
+                        );
+                        for (final app in allApps) {
+                          if (!orderedIds.contains(app.id)) {
+                            orderedIds.add(app.id);
+                          }
+                        }
 
-                    return Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
-                                color: Theme.of(context).dividerColor,
+                        final visibleIds = orderedIds
+                            .where((id) => !config.hiddenAppIds.contains(id))
+                            .toList();
+                        final hiddenIds = orderedIds
+                            .where((id) => config.hiddenAppIds.contains(id))
+                            .toList();
+
+                        return Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: Theme.of(context).dividerColor,
+                                  ),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.tune),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Manage & Reorder Apps',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.bold),
+                                  ),
+                                  const Spacer(),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(sheetContext),
+                                    child: const Text('Done'),
+                                  ),
+                                ],
                               ),
                             ),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.tune),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Manage & Reorder Apps',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.bold),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                              child: SegmentedButton<bool>(
+                                segments: const [
+                                  ButtonSegment(
+                                    value: false,
+                                    label: Text('Terms (词汇)'),
+                                    icon: Icon(Icons.translate, size: 16),
+                                  ),
+                                  ButtonSegment(
+                                    value: true,
+                                    label: Text('Sentences (句子)'),
+                                    icon: Icon(Icons.notes, size: 16),
+                                  ),
+                                ],
+                                selected: {targetIsSentence},
+                                onSelectionChanged: (Set<bool> newSelection) {
+                                  setSheetState(() {
+                                    targetIsSentence = newSelection.first;
+                                  });
+                                },
                               ),
-                              const Spacer(),
-                              TextButton(
-                                onPressed: () => Navigator.pop(sheetContext),
-                                child: const Text('Done'),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 6,
                               ),
-                            ],
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          child: Text(
-                            'Drag to reorder. Tap ⭐ to set default app. Tap 👁️ to hide/unhide.',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.color
-                                      ?.withValues(alpha: 0.7),
-                                ),
-                          ),
-                        ),
-                        Expanded(
-                          child: ListView(
-                            controller: scrollController,
-                            children: [
-                              if (visibleIds.isNotEmpty) ...[
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 4,
-                                  ),
-                                  child: Text(
-                                    'Visible Apps (${visibleIds.length})',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelMedium
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                          color: context.m3Primary,
-                                        ),
-                                  ),
-                                ),
-                                ReorderableListView.builder(
-                                  shrinkWrap: true,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  itemCount: visibleIds.length,
-                                  onReorder: (oldIndex, newIndex) {
-                                    if (oldIndex < newIndex) {
-                                      newIndex -= 1;
-                                    }
-                                    final item = visibleIds.removeAt(oldIndex);
-                                    visibleIds.insert(newIndex, item);
-
-                                    final fullNewOrder = [
-                                      ...visibleIds,
-                                      ...hiddenIds,
-                                    ];
-                                    ref
-                                        .read(localAppTabConfigProvider.notifier)
-                                        .setAppOrder(fullNewOrder);
-                                  },
-                                  itemBuilder: (context, index) {
-                                    final appId = visibleIds[index];
-                                    final app = appMap[appId]!;
-                                    final isDefault =
-                                        app.id == config.defaultAppId;
-
-                                    return ListTile(
-                                      key: ValueKey(app.id),
-                                      leading: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          ReorderableDragStartListener(
-                                            index: index,
-                                            child: const Icon(
-                                              Icons.drag_handle,
-                                              color: Colors.grey,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          _buildAppIcon(app.iconBase64),
-                                        ],
-                                      ),
-                                      title: Text(
-                                        app.label,
-                                        style: TextStyle(
-                                          fontWeight: isDefault
-                                              ? FontWeight.bold
-                                              : FontWeight.normal,
-                                        ),
-                                      ),
-                                      subtitle: isDefault
-                                          ? Text(
-                                              '⭐ Default app',
-                                              style: TextStyle(
-                                                color: context.m3Primary,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            )
-                                          : null,
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: Icon(
-                                              isDefault
-                                                  ? Icons.star
-                                                  : Icons.star_border,
-                                              color: isDefault
-                                                  ? Colors.amber
-                                                  : null,
-                                            ),
-                                            tooltip: isDefault
-                                                ? 'Clear default'
-                                                : 'Set as default',
-                                            onPressed: () {
-                                              ref
-                                                  .read(
-                                                    localAppTabConfigProvider
-                                                        .notifier,
-                                                  )
-                                                  .setDefaultApp(
-                                                    isDefault ? null : app.id,
-                                                  );
-                                            },
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.visibility_outlined,
-                                            ),
-                                            tooltip: 'Hide app',
-                                            onPressed: () {
-                                              ref
-                                                  .read(
-                                                    localAppTabConfigProvider
-                                                        .notifier,
-                                                  )
-                                                  .toggleHideApp(app.id);
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
-                              if (hiddenIds.isNotEmpty) ...[
-                                const Divider(height: 24),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 4,
-                                  ),
-                                  child: Text(
-                                    'Hidden Apps (${hiddenIds.length})',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelMedium
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.grey,
-                                        ),
-                                  ),
-                                ),
-                                ...hiddenIds.map((appId) {
-                                  final app = appMap[appId]!;
-                                  return ListTile(
-                                    leading: Opacity(
-                                      opacity: 0.5,
-                                      child: _buildAppIcon(app.iconBase64),
+                              child: Text(
+                                targetIsSentence
+                                    ? 'Configuring Sentence defaults. Drag to reorder. Tap ⭐ to set default app for sentences.'
+                                    : 'Configuring Term defaults. Drag to reorder. Tap ⭐ to set default app for terms.',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.color
+                                          ?.withValues(alpha: 0.7),
                                     ),
-                                    title: Text(
-                                      app.label,
-                                      style: const TextStyle(
-                                        color: Colors.grey,
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            Expanded(
+                              child: ListView(
+                                controller: scrollController,
+                                children: [
+                                  if (visibleIds.isNotEmpty) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 4,
+                                      ),
+                                      child: Text(
+                                        'Visible Apps (${visibleIds.length})',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                              color: context.m3Primary,
+                                            ),
                                       ),
                                     ),
-                                    trailing: TextButton.icon(
-                                      icon: const Icon(
-                                        Icons.visibility,
-                                        size: 16,
-                                      ),
-                                      label: const Text('Unhide'),
-                                      onPressed: () {
+                                    ReorderableListView.builder(
+                                      shrinkWrap: true,
+                                      physics: const NeverScrollableScrollPhysics(),
+                                      itemCount: visibleIds.length,
+                                      onReorder: (oldIndex, newIndex) {
+                                        if (oldIndex < newIndex) {
+                                          newIndex -= 1;
+                                        }
+                                        final item = visibleIds.removeAt(oldIndex);
+                                        visibleIds.insert(newIndex, item);
+
+                                        final fullNewOrder = [
+                                          ...visibleIds,
+                                          ...hiddenIds,
+                                        ];
                                         ref
-                                            .read(
-                                              localAppTabConfigProvider
-                                                  .notifier,
-                                            )
-                                            .toggleHideApp(app.id);
+                                            .read(localAppTabConfigProvider.notifier)
+                                            .setAppOrder(fullNewOrder);
+                                      },
+                                      itemBuilder: (context, index) {
+                                        final appId = visibleIds[index];
+                                        final app = appMap[appId]!;
+                                        final isTermDef = app.id ==
+                                            config.getDefaultAppId(
+                                              isSentence: false,
+                                            );
+                                        final isSentenceDef = app.id ==
+                                            config.getDefaultAppId(
+                                              isSentence: true,
+                                            );
+                                        final isCurrentTargetDef =
+                                            targetIsSentence
+                                                ? isSentenceDef
+                                                : isTermDef;
+
+                                        String? defaultBadge;
+                                        if (isTermDef && isSentenceDef) {
+                                          defaultBadge =
+                                              '⭐ Default for Terms & Sentences';
+                                        } else if (isTermDef) {
+                                          defaultBadge =
+                                              '⭐ Default for Terms';
+                                        } else if (isSentenceDef) {
+                                          defaultBadge =
+                                              '⭐ Default for Sentences';
+                                        }
+
+                                        return ListTile(
+                                          key: ValueKey(app.id),
+                                          leading: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              ReorderableDragStartListener(
+                                                index: index,
+                                                child: const Icon(
+                                                  Icons.drag_handle,
+                                                  color: Colors.grey,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              _buildAppIcon(app.iconBase64),
+                                            ],
+                                          ),
+                                          title: Text(
+                                            app.label,
+                                            style: TextStyle(
+                                              fontWeight: isCurrentTargetDef
+                                                  ? FontWeight.bold
+                                                  : FontWeight.normal,
+                                            ),
+                                          ),
+                                          subtitle: defaultBadge != null
+                                              ? Text(
+                                                  defaultBadge,
+                                                  style: TextStyle(
+                                                    color: context.m3Primary,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                )
+                                              : null,
+                                          trailing: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                icon: Icon(
+                                                  isCurrentTargetDef
+                                                      ? Icons.star
+                                                      : Icons.star_border,
+                                                  color: isCurrentTargetDef
+                                                      ? Colors.amber
+                                                      : null,
+                                                ),
+                                                tooltip: isCurrentTargetDef
+                                                    ? (targetIsSentence
+                                                        ? 'Clear default for sentences'
+                                                        : 'Clear default for terms')
+                                                    : (targetIsSentence
+                                                        ? 'Set as default for sentences'
+                                                        : 'Set as default for terms'),
+                                                onPressed: () {
+                                                  ref
+                                                      .read(
+                                                        localAppTabConfigProvider
+                                                            .notifier,
+                                                      )
+                                                      .setDefaultApp(
+                                                        isCurrentTargetDef
+                                                            ? null
+                                                            : app.id,
+                                                        isSentence:
+                                                            targetIsSentence,
+                                                      );
+                                                },
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.visibility_outlined,
+                                                ),
+                                                tooltip: 'Hide app',
+                                                onPressed: () {
+                                                  ref
+                                                      .read(
+                                                        localAppTabConfigProvider
+                                                            .notifier,
+                                                      )
+                                                      .toggleHideApp(app.id);
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        );
                                       },
                                     ),
-                                  );
-                                }),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
+                                  ],
+                                  if (hiddenIds.isNotEmpty) ...[
+                                    const Divider(height: 24),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 4,
+                                      ),
+                                      child: Text(
+                                        'Hidden Apps (${hiddenIds.length})',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.grey,
+                                            ),
+                                      ),
+                                    ),
+                                    ...hiddenIds.map((appId) {
+                                      final app = appMap[appId]!;
+                                      return ListTile(
+                                        leading: Opacity(
+                                          opacity: 0.5,
+                                          child: _buildAppIcon(app.iconBase64),
+                                        ),
+                                        title: Text(
+                                          app.label,
+                                          style: const TextStyle(
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                        trailing: TextButton.icon(
+                                          icon: const Icon(
+                                            Icons.visibility,
+                                            size: 16,
+                                          ),
+                                          label: const Text('Unhide'),
+                                          onPressed: () {
+                                            ref
+                                                .read(
+                                                  localAppTabConfigProvider
+                                                      .notifier,
+                                                )
+                                                .toggleHideApp(app.id);
+                                          },
+                                        ),
+                                      );
+                                    }),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     );
                   },
                 );

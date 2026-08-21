@@ -32,11 +32,16 @@ class LocalAppTabConfigNotifier extends Notifier<LocalAppTabConfig> {
     await service.saveAppConfig(newConfig);
   }
 
-  Future<void> setDefaultApp(String? appId) async {
-    final updated = state.copyWith(
-      defaultAppId: appId,
-      clearDefaultAppId: appId == null,
-    );
+  Future<void> setDefaultApp(String? appId, {bool isSentence = false}) async {
+    final updated = isSentence
+        ? state.copyWith(
+            defaultSentenceAppId: appId,
+            clearDefaultSentenceAppId: appId == null,
+          )
+        : state.copyWith(
+            defaultTermAppId: appId,
+            clearDefaultTermAppId: appId == null,
+          );
     await updateConfig(updated);
   }
 
@@ -46,11 +51,15 @@ class LocalAppTabConfigNotifier extends Notifier<LocalAppTabConfig> {
       hidden.remove(appId);
     } else {
       hidden.add(appId);
-      // If we just hid the default app, clear default
-      if (state.defaultAppId == appId) {
+      // If we just hid an app that is currently set as default, clear its default status
+      final isTermDefault = state.getDefaultAppId(isSentence: false) == appId;
+      final isSentenceDefault = state.getDefaultAppId(isSentence: true) == appId;
+
+      if (isTermDefault || isSentenceDefault) {
         final updated = state.copyWith(
           hiddenAppIds: hidden,
-          clearDefaultAppId: true,
+          clearDefaultTermAppId: isTermDefault,
+          clearDefaultSentenceAppId: isSentenceDefault,
         );
         await updateConfig(updated);
         return;

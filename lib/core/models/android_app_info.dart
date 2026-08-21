@@ -75,7 +75,8 @@ class AndroidAppInfo {
 @immutable
 class LocalAppTabConfig {
   final bool enabled;
-  final String? defaultAppId;
+  final String? defaultTermAppId;
+  final String? defaultSentenceAppId;
   final bool autoInvokeDefault;
   final List<String> hiddenAppIds;
   final List<String> appOrder;
@@ -83,17 +84,34 @@ class LocalAppTabConfig {
 
   const LocalAppTabConfig({
     this.enabled = true,
-    this.defaultAppId,
+    this.defaultTermAppId,
+    this.defaultSentenceAppId,
+    String? defaultAppId,
     this.autoInvokeDefault = true,
     this.hiddenAppIds = const [],
     this.appOrder = const [],
     this.tabTitle = 'Apps',
-  });
+  }) : _legacyDefaultAppId = defaultAppId;
+
+  final String? _legacyDefaultAppId;
+
+  /// Default app ID for terms (or fallback to legacy defaultAppId)
+  String? get defaultAppId => defaultTermAppId ?? _legacyDefaultAppId;
+
+  /// Returns the default app ID for the given context (sentence or term).
+  String? getDefaultAppId({bool isSentence = false}) {
+    if (isSentence) {
+      return defaultSentenceAppId;
+    }
+    return defaultTermAppId ?? _legacyDefaultAppId;
+  }
 
   factory LocalAppTabConfig.fromJson(Map<String, dynamic> json) {
+    final legacyDefault = json['defaultAppId'] as String?;
     return LocalAppTabConfig(
       enabled: json['enabled'] as bool? ?? true,
-      defaultAppId: json['defaultAppId'] as String?,
+      defaultTermAppId: json['defaultTermAppId'] as String? ?? legacyDefault,
+      defaultSentenceAppId: json['defaultSentenceAppId'] as String?,
       autoInvokeDefault: json['autoInvokeDefault'] as bool? ?? true,
       hiddenAppIds:
           (json['hiddenAppIds'] as List<dynamic>?)
@@ -112,6 +130,8 @@ class LocalAppTabConfig {
   Map<String, dynamic> toJson() {
     return {
       'enabled': enabled,
+      'defaultTermAppId': defaultTermAppId,
+      'defaultSentenceAppId': defaultSentenceAppId,
       'defaultAppId': defaultAppId,
       'autoInvokeDefault': autoInvokeDefault,
       'hiddenAppIds': hiddenAppIds,
@@ -122,6 +142,10 @@ class LocalAppTabConfig {
 
   LocalAppTabConfig copyWith({
     bool? enabled,
+    String? defaultTermAppId,
+    bool clearDefaultTermAppId = false,
+    String? defaultSentenceAppId,
+    bool clearDefaultSentenceAppId = false,
     String? defaultAppId,
     bool clearDefaultAppId = false,
     bool? autoInvokeDefault,
@@ -129,11 +153,20 @@ class LocalAppTabConfig {
     List<String>? appOrder,
     String? tabTitle,
   }) {
+    final effectiveClearTerm = clearDefaultTermAppId || clearDefaultAppId;
+    final effectiveTerm = effectiveClearTerm
+        ? null
+        : (defaultTermAppId ??
+            (defaultAppId ?? (clearDefaultAppId ? null : this.defaultTermAppId ?? _legacyDefaultAppId)));
+
+    final effectiveSentence = clearDefaultSentenceAppId
+        ? null
+        : (defaultSentenceAppId ?? this.defaultSentenceAppId);
+
     return LocalAppTabConfig(
       enabled: enabled ?? this.enabled,
-      defaultAppId: clearDefaultAppId
-          ? null
-          : (defaultAppId ?? this.defaultAppId),
+      defaultTermAppId: effectiveTerm,
+      defaultSentenceAppId: effectiveSentence,
       autoInvokeDefault: autoInvokeDefault ?? this.autoInvokeDefault,
       hiddenAppIds: hiddenAppIds ?? this.hiddenAppIds,
       appOrder: appOrder ?? this.appOrder,
@@ -147,6 +180,8 @@ class LocalAppTabConfig {
       other is LocalAppTabConfig &&
           runtimeType == other.runtimeType &&
           enabled == other.enabled &&
+          defaultTermAppId == other.defaultTermAppId &&
+          defaultSentenceAppId == other.defaultSentenceAppId &&
           defaultAppId == other.defaultAppId &&
           autoInvokeDefault == other.autoInvokeDefault &&
           listEquals(hiddenAppIds, other.hiddenAppIds) &&
@@ -156,6 +191,8 @@ class LocalAppTabConfig {
   @override
   int get hashCode =>
       enabled.hashCode ^
+      defaultTermAppId.hashCode ^
+      defaultSentenceAppId.hashCode ^
       defaultAppId.hashCode ^
       autoInvokeDefault.hashCode ^
       hiddenAppIds.hashCode ^
