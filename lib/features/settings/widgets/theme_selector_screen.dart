@@ -75,6 +75,61 @@ class ThemeSelectorScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 20),
           const Text(
+            'Theme Accent Color',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Follow System Monet Color'),
+                    subtitle: const Text(
+                      'Dynamically adapt to Android Material You system palette',
+                    ),
+                    value: themeSettings.useDynamicColor,
+                    onChanged: (val) {
+                      ref
+                          .read(themeSettingsProvider.notifier)
+                          .setUseDynamicColor(val);
+                    },
+                  ),
+                  if (!themeSettings.useDynamicColor) ...[
+                    const Divider(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Preset Accent Colors',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        if (themeSettings.customAccentColor != null)
+                          TextButton(
+                            onPressed: () {
+                              ref
+                                  .read(themeSettingsProvider.notifier)
+                                  .setCustomAccentColor(null);
+                            },
+                            child: const Text('Reset to Default'),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _buildAccentColorSwatches(context, ref, themeSettings),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
             'My Themes',
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
@@ -328,6 +383,152 @@ class ThemeSelectorScreen extends ConsumerWidget {
           FilledButton(
             onPressed: () => Navigator.pop(context, controller.text),
             child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAccentColorSwatches(
+    BuildContext context,
+    WidgetRef ref,
+    ThemeSettings themeSettings,
+  ) {
+    const presetColors = [
+      (Color(0xFF007ACC), 'VS Code Blue'),
+      (Color(0xFF6366F1), 'Indigo'),
+      (Color(0xFF8B5CF6), 'Violet'),
+      (Color(0xFF10B981), 'Emerald'),
+      (Color(0xFFF59E0B), 'Amber'),
+      (Color(0xFFF43F5E), 'Rose'),
+      (Color(0xFF06B6D4), 'Cyan'),
+      (Color(0xFF64748B), 'Slate'),
+    ];
+
+    final currentAccent = themeSettings.customAccentColor != null
+        ? Color(themeSettings.customAccentColor!)
+        : context.appColorScheme.material3.primary;
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        ...presetColors.map((item) {
+          final color = item.$1;
+          final isSelected =
+              themeSettings.customAccentColor == color.toARGB32();
+          return InkWell(
+            onTap: () {
+              ref
+                  .read(themeSettingsProvider.notifier)
+                  .setCustomAccentColor(color);
+            },
+            borderRadius: BorderRadius.circular(20),
+            child: Tooltip(
+              message: item.$2,
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected
+                        ? Colors.white
+                        : Colors.transparent,
+                    width: 2.5,
+                  ),
+                  boxShadow: [
+                    if (isSelected)
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.5),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                  ],
+                ),
+                child: isSelected
+                    ? const Icon(Icons.check, color: Colors.white, size: 20)
+                    : null,
+              ),
+            ),
+          );
+        }),
+        InkWell(
+          onTap: () => _showCustomColorDialog(context, ref, currentAccent),
+          borderRadius: BorderRadius.circular(20),
+          child: Tooltip(
+            message: 'Custom Color',
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: context.appColorScheme.border.outline,
+                  width: 1.5,
+                ),
+              ),
+              child: Icon(
+                Icons.colorize,
+                size: 18,
+                color: context.appColorScheme.text.primary,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showCustomColorDialog(
+    BuildContext context,
+    WidgetRef ref,
+    Color currentColor,
+  ) {
+    final controller = TextEditingController(
+      text: currentColor.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase().substring(2),
+    );
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Custom Accent Color'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Enter 6-digit Hex color code (e.g. 007ACC):'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                prefixText: '#',
+                border: OutlineInputBorder(),
+                hintText: 'RRGGBB',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final hex = controller.text.trim().replaceAll('#', '');
+              if (hex.length == 6) {
+                final intVal = int.tryParse('FF$hex', radix: 16);
+                if (intVal != null) {
+                  ref
+                      .read(themeSettingsProvider.notifier)
+                      .setCustomAccentColor(Color(intVal));
+                }
+              }
+              Navigator.pop(context);
+            },
+            child: const Text('Apply'),
           ),
         ],
       ),

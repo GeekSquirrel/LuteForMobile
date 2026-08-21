@@ -83,9 +83,10 @@ class TextDisplay extends StatefulWidget {
     Color? textColor;
     Color? backgroundColor;
 
+    String? status;
     if (item.wordId != null) {
       final statusMatch = RegExp(r'status(\d+)').firstMatch(item.statusClass);
-      final status = statusMatch?.group(1) ?? '0';
+      status = statusMatch?.group(1) ?? '0';
 
       textColor = context.getStatusTextColor(status);
       backgroundColor = context.getStatusBackgroundColor(status);
@@ -120,11 +121,14 @@ class TextDisplay extends StatefulWidget {
           )
         : null;
 
+    final isStatus0 = item.wordId != null && status == '0';
+    final effectiveFontWeight = isStatus0 ? FontWeight.bold : fontWeight;
+
     final textStyle = TextStyle(
       color: isSelected
           ? selectionTextColor
           : textColor ?? Theme.of(context).textTheme.bodyLarge?.color,
-      fontWeight: fontWeight,
+      fontWeight: effectiveFontWeight,
       fontSize: textSize,
       height: lineSpacing,
       fontFamily: fontFamily,
@@ -132,8 +136,11 @@ class TextDisplay extends StatefulWidget {
     );
 
     final textWidget = Container(
+      margin: backgroundColor != null || isSelected
+          ? const EdgeInsets.symmetric(vertical: 2.0, horizontal: 0.5)
+          : null,
       padding: backgroundColor != null || isSelected
-          ? const EdgeInsets.symmetric(horizontal: 2.0)
+          ? const EdgeInsets.symmetric(horizontal: 3.0, vertical: 0.5)
           : null,
       decoration: BoxDecoration(
         color: isSelected ? selectionColor : backgroundColor,
@@ -401,7 +408,7 @@ class _TextDisplayState extends State<TextDisplay> {
               : Alignment.centerLeft,
           child: Wrap(
             spacing: 0,
-            runSpacing: 0,
+            runSpacing: 2,
             textDirection: textDirection,
             children: paragraph.textItems.asMap().entries.map((entry) {
               final item = entry.value;

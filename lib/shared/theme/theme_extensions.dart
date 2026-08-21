@@ -69,7 +69,8 @@ extension BuildContextExtension on BuildContext {
     final statusNum = int.tryParse(status) ?? 0;
     final mode = statusModes[statusNum] ?? StatusMode.background;
     if (mode != StatusMode.background) return null;
-    return getStatusColor(status);
+    final color = getStatusColor(status);
+    return color.a == 0 ? null : color;
   }
 
   Color getStatusColor(String status) {
@@ -100,8 +101,11 @@ extension BuildContextExtension on BuildContext {
 
   /// Always returns a visible status swatch color for charts/legends/stats.
   Color getStatusColorForVisualization(String status) {
+    if (status == '99') {
+      return appColorScheme.semantic.success;
+    }
     final color = getStatusColor(status);
-    return color.a == 0 ? color.withValues(alpha: 1.0) : color;
+    return color.a == 0 ? color.withValues(alpha: 1.0) : color.withValues(alpha: 0.85);
   }
 }
 

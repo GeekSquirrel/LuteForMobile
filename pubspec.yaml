@@ -47,6 +47,7 @@ dependencies:
   cached_network_image: ^3.3.1
   package_info_plus: ^10.1.0
   confetti: ^0.8.0
+  dynamic_color: ^1.7.0
 
   # Reader-Specific Packages
   flutter_tts: ^4.2.5

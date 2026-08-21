@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:lute_for_mobile/core/logger/api_logger.dart';
 import 'package:lute_for_mobile/features/reader/widgets/reader_screen.dart';
 import 'package:lute_for_mobile/features/reader/widgets/reader_drawer_settings.dart';
@@ -155,18 +156,43 @@ class App extends ConsumerWidget {
         break;
     }
 
-    return RestartWidget(
-      child: MaterialApp(
-        title: 'LuteForMobile',
-        debugShowCheckedModeBanner: false,
-        theme: switch (themeSettings.themeType) {
-          ThemeType.blackAndWhite => AppTheme.blackAndWhiteTheme(themeSettings),
-          _ => AppTheme.lightTheme(themeSettings),
-        },
-        darkTheme: AppTheme.darkTheme(themeSettings),
-        themeMode: themeMode,
-        home: const MainNavigation(),
-      ),
+    return DynamicColorBuilder(
+      builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+        final isDark = themeSettings.themeType == ThemeType.dark;
+        final dynamicColor =
+            isDark ? darkDynamic?.primary : lightDynamic?.primary;
+
+        if (dynamicColor != null &&
+            themeSettings.systemMonetColor != dynamicColor.toARGB32()) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ref
+                .read(themeSettingsProvider.notifier)
+                .setSystemMonetColor(dynamicColor.toARGB32());
+          });
+        }
+
+        final effectiveSettings =
+            themeSettings.useDynamicColor && dynamicColor != null
+                ? themeSettings.copyWith(
+                    systemMonetColor: dynamicColor.toARGB32(),
+                  )
+                : themeSettings;
+
+        return RestartWidget(
+          child: MaterialApp(
+            title: 'LuteForMobile',
+            debugShowCheckedModeBanner: false,
+            theme: switch (effectiveSettings.themeType) {
+              ThemeType.blackAndWhite =>
+                AppTheme.blackAndWhiteTheme(effectiveSettings),
+              _ => AppTheme.lightTheme(effectiveSettings),
+            },
+            darkTheme: AppTheme.darkTheme(effectiveSettings),
+            themeMode: themeMode,
+            home: const MainNavigation(),
+          ),
+        );
+      },
     );
   }
 }

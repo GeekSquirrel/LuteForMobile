@@ -976,6 +976,8 @@ class ThemeSettingsNotifier extends Notifier<ThemeSettings> {
   static const String _keySelectedThemeId = 'selectedThemeId';
   static const String _keyUserThemesJson = 'userThemesJson';
   static const String _keyThemeDataVersion = 'themeDataVersion';
+  static const String _keyUseDynamicColor = 'themeUseDynamicColor';
+  static const String _keyCustomAccentColor = 'themeCustomAccentColor';
   bool _isInitialized = false;
 
   @override
@@ -999,6 +1001,8 @@ class ThemeSettingsNotifier extends Notifier<ThemeSettings> {
         : ThemeType.dark;
     final selectedThemeId = prefs.getString(_keySelectedThemeId);
     final userThemesJson = prefs.getString(_keyUserThemesJson);
+    final useDynamicColor = prefs.getBool(_keyUseDynamicColor) ?? false;
+    final customAccentColor = prefs.getInt(_keyCustomAccentColor);
 
     final userThemes = <UserThemeDefinition>[];
     if (userThemesJson != null && userThemesJson.isNotEmpty) {
@@ -1028,10 +1032,37 @@ class ThemeSettingsNotifier extends Notifier<ThemeSettings> {
       themeType: themeType,
       selectedThemeId: resolvedSelectedThemeId,
       userThemes: userThemes,
+      useDynamicColor: useDynamicColor,
+      customAccentColor: customAccentColor,
     );
 
     if (state != loadedSettings) {
       state = loadedSettings;
+    }
+  }
+
+  Future<void> setUseDynamicColor(bool enabled) async {
+    state = state.copyWith(useDynamicColor: enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyUseDynamicColor, enabled);
+  }
+
+  Future<void> setCustomAccentColor(Color? color) async {
+    if (color == null) {
+      state = state.copyWith(clearCustomAccentColor: true);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_keyCustomAccentColor);
+    } else {
+      final val = color.toARGB32();
+      state = state.copyWith(customAccentColor: val);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_keyCustomAccentColor, val);
+    }
+  }
+
+  void setSystemMonetColor(int? colorValue) {
+    if (state.systemMonetColor != colorValue) {
+      state = state.copyWith(systemMonetColor: colorValue);
     }
   }
 

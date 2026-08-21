@@ -1,5 +1,5 @@
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -17,18 +17,18 @@ import '../../../core/widgets/lute_image.dart';
 import '../providers/sentence_tts_provider.dart';
 import '../../../core/providers/ai_provider.dart';
 import '../../../core/providers/android_app_provider.dart';
-import 'android_app_launcher_view.dart';
+import 'dictionary_browser_view.dart';
+import 'dictionary_tab_reorder_dialog.dart';
 import 'parent_search.dart';
-import 'dictionary_view.dart';
 import '../providers/current_book_provider.dart';
 
 class TermFormWidget extends ConsumerStatefulWidget {
   final TermForm termForm;
   final String? sentence;
   final String? initialReaderStatus;
-  final void Function(TermForm) onSave;
+  final void Function(TermForm)? onSave;
   final void Function(TermForm) onUpdate;
-  final VoidCallback onCancel;
+  final VoidCallback? onCancel;
   final ContentService contentService;
   final void Function(TermParent)? onParentDoubleTap;
   final DictionaryService dictionaryService;
@@ -41,9 +41,9 @@ class TermFormWidget extends ConsumerStatefulWidget {
     required this.termForm,
     this.sentence,
     this.initialReaderStatus,
-    required this.onSave,
+    this.onSave,
     required this.onUpdate,
-    required this.onCancel,
+    this.onCancel,
     required this.contentService,
     required this.dictionaryService,
     this.onParentDoubleTap,
@@ -57,20 +57,29 @@ class TermFormWidget extends ConsumerStatefulWidget {
 }
 
 class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
+  final GlobalKey<DictionaryBrowserViewState> _browserViewKey =
+      GlobalKey<DictionaryBrowserViewState>();
   late TextEditingController _translationController;
   late TextEditingController _romanizationController;
+  late TextEditingController _imageSearchController;
   late String _selectedStatus;
   late DictionaryService _dictionaryService;
   String? _currentImageUrl;
   String? _currentImageFilename;
-  bool _isDictionaryOpen = false;
   List<DictionarySource> _dictionaries = [];
+  int _currentPage = 0;
+  bool _hasLoaded = false;
   bool _isLoadingAITranslation = false;
   bool _isSavingImage = false;
-  StateSetter? _imageDialogSetState;
   List<String> _pendingAITranslations = [];
   String? _lastAutoFetchedTermKey;
-  bool _hasAutoInvokedLocalApp = false;
+  Timer? _debounceTimer;
+  int _popupHeight = DictionaryService.defaultPopupHeight;
+
+  // Image search state
+  List<TermImageSearchResult> _imageSearchResults = [];
+  bool _isLoadingImages = false;
+  String? _imageSearchError;
 
   @override
   void initState() {
@@ -82,24 +91,139 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     _romanizationController = TextEditingController(
       text: widget.termForm.romanization ?? '',
     );
+    _imageSearchController = TextEditingController(
+      text: widget.termForm.term,
+    );
     _selectedStatus = widget.termForm.status;
     _currentImageUrl = widget.termForm.imageUrl;
     _currentImageFilename = widget.termForm.imageFilename;
+
+    _loadPopupHeight();
     _loadDictionaries();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeAutoFetchAITranslation();
     });
   }
 
-  Future<void> _loadDictionaries() async {
-    final languageId = widget.termForm.languageId;
-    final dictionaries = await _dictionaryService.getDictionariesForLanguage(
-      languageId,
-    );
+  Future<void> _loadPopupHeight() async {
+    final height = await _dictionaryService.getTermFormPopupHeight();
     if (mounted) {
       setState(() {
-        _dictionaries = dictionaries;
+        _popupHeight = height;
       });
+    }
+  }
+
+  Future<void> _loadDictionaries({bool preserveCurrentPage = false}) async {
+    if (!mounted) return;
+
+    final rawDictionaries = await _dictionaryService.getDictionariesForLanguage(
+      widget.termForm.languageId,
+    );
+
+    if (!mounted) return;
+
+    final aiSettings = ref.read(aiSettingsProvider);
+    final aiConfig = aiSettings.promptConfigs[AIPromptType.termTranslation];
+    final shouldAddAI =
+        aiSettings.provider != AIProvider.none && aiConfig?.enabled == true;
+
+    final virtualDictConfig =
+        aiSettings.promptConfigs[AIPromptType.termExplanation];
+    final shouldAddVirtualDict =
+        aiSettings.provider != AIProvider.none &&
+        virtualDictConfig?.enabled == true;
+
+    final allDictionaries = List<DictionarySource>.from(rawDictionaries);
+    if (shouldAddAI) {
+      final modelName =
+          aiSettings.providerConfigs[aiSettings.provider]?.model ?? 'gpt-4o';
+      allDictionaries.add(
+        DictionarySource(
+          name: 'AI: $modelName',
+          urlTemplate: '',
+          isAI: true,
+          aiType: AIType.translation,
+        ),
+      );
+    }
+    if (shouldAddVirtualDict) {
+      final modelName =
+          aiSettings.providerConfigs[aiSettings.provider]?.model ?? 'gpt-4o';
+      allDictionaries.add(
+        DictionarySource(
+          name: 'Virtual: $modelName',
+          urlTemplate: '',
+          isAI: true,
+          aiType: AIType.virtualDictionary,
+        ),
+      );
+    }
+
+    final appService = ref.read(androidAppServiceProvider);
+    final savedOrder = await appService.getTabOrder(
+      widget.termForm.languageId,
+      isSentence: false,
+    );
+
+    final config = ref.read(localAppTabConfigProvider);
+    final localAppSource = DictionarySource(
+      name: config.tabTitle.isNotEmpty ? config.tabTitle : 'Apps',
+      urlTemplate: '',
+      isAndroidApp: true,
+    );
+
+    const imagesSource = DictionarySource(
+      name: 'Images',
+      urlTemplate: '',
+      isImages: true,
+    );
+
+    final ordered = appService.applyTabOrder<DictionarySource>(
+      originalItems: allDictionaries,
+      getId: (d) => d.name,
+      savedOrder: savedOrder,
+      localAppItem: localAppSource,
+      includeLocalApp: config.enabled && appService.isSupportedPlatform,
+      imagesItem: imagesSource,
+      includeImages: true,
+    );
+
+    int initialPage = 0;
+    if (preserveCurrentPage && _currentPage < ordered.length) {
+      initialPage = _currentPage;
+    } else {
+      final lastUsed = await _dictionaryService.getLastUsedDictionary(
+        widget.termForm.languageId,
+      );
+      if (lastUsed != null && ordered.isNotEmpty) {
+        final index = ordered.indexWhere((d) => d.name == lastUsed);
+        if (index >= 0) {
+          initialPage = index;
+        } else {
+          initialPage = 0;
+        }
+      } else {
+        initialPage = 0;
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _dictionaries = ordered;
+        _currentPage = initialPage;
+        _hasLoaded = true;
+      });
+    }
+  }
+
+  void _navigateToImagesTab() {
+    final imagesIndex = _dictionaries.indexWhere((d) => d.isImages);
+    if (imagesIndex >= 0) {
+      _browserViewKey.currentState?.animateToTab(imagesIndex);
+      if (_imageSearchResults.isEmpty && !_isLoadingImages) {
+        _searchImages();
+      }
     }
   }
 
@@ -126,7 +250,9 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
       setState(() {});
     }
     if (oldWidget.termForm.term != widget.termForm.term) {
-      _hasAutoInvokedLocalApp = false;
+      _imageSearchController.text = widget.termForm.term;
+      _imageSearchResults = [];
+      _loadDictionaries(preserveCurrentPage: false);
     }
     if (oldWidget.termForm.term != widget.termForm.term ||
         oldWidget.termForm.termId != widget.termForm.termId ||
@@ -139,8 +265,10 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _translationController.dispose();
     _romanizationController.dispose();
+    _imageSearchController.dispose();
     super.dispose();
   }
 
@@ -202,256 +330,193 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     _fetchAITranslation();
   }
 
-  void _handleSave() {
-    final newStatus = _selectedStatus;
-    final oldStatus = widget.termForm.status;
-
-    final updatedForm = widget.termForm.copyWith(
-      translation: _translationController.text.trim(),
-      status: newStatus,
-      romanization: _romanizationController.text.trim(),
-      parents: widget.termForm.parents,
+  void _openTabReorderDialog() {
+    final rawWebviewDicts =
+        _dictionaries.where((d) => !d.isAndroidApp && !d.isImages).toList();
+    DictionaryTabReorderDialog.show(
+      context,
+      languageId: widget.termForm.languageId,
+      isSentence: false,
+      webviewDictionaries: rawWebviewDicts,
+      onOrderChanged: () {
+        _loadDictionaries(preserveCurrentPage: true);
+      },
     );
-
-    if (oldStatus != '99' && newStatus == '99') {
-      widget.onStatus99Changed?.call(widget.termForm.languageId);
-    }
-
-    widget.onSave(updatedForm);
   }
 
   void _showSettingsMenu() {
-    final settings = ref.watch(termFormSettingsProvider);
-    final aiSettings = ref.watch(aiSettingsProvider);
+    final aiSettings = ref.read(aiSettingsProvider);
     final termConfig = aiSettings.promptConfigs[AIPromptType.termTranslation];
     final shouldShowAIOption =
         aiSettings.provider != AIProvider.none && termConfig?.enabled == true;
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Term Form Settings'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                const Text('Show Tags'),
-                const Spacer(),
-                Transform.scale(
-                  scale: 0.8,
-                  child: Switch(
-                    value: settings.showTags,
-                    onChanged: (value) {
-                      ref
-                          .read(termFormSettingsProvider.notifier)
-                          .updateShowTags(value);
-                      Navigator.of(context).pop();
-                    },
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                const Text('Show Images'),
-                const Spacer(),
-                Transform.scale(
-                  scale: 0.8,
-                  child: Switch(
-                    value: settings.showImages,
-                    onChanged: (value) {
-                      ref
-                          .read(termFormSettingsProvider.notifier)
-                          .updateShowImages(value);
-                      Navigator.of(context).pop();
-                    },
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                const Text('Auto Save on Close'),
-                const Spacer(),
-                Transform.scale(
-                  scale: 0.8,
-                  child: Switch(
-                    value: settings.autoSave,
-                    onChanged: (value) {
-                      ref
-                          .read(termFormSettingsProvider.notifier)
-                          .updateAutoSave(value);
-                      Navigator.of(context).pop();
-                    },
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                const Text('Show Parents in Dictionary'),
-                const Spacer(),
-                Transform.scale(
-                  scale: 0.8,
-                  child: Switch(
-                    value: settings.showParentsInDictionary,
-                    onChanged: (value) {
-                      ref
-                          .read(termFormSettingsProvider.notifier)
-                          .updateShowParentsInDictionary(value);
-                      Navigator.of(context).pop();
-                    },
-                  ),
-                ),
-              ],
-            ),
-            if (shouldShowAIOption)
-              Row(
+      builder: (dialogContext) => Consumer(
+        builder: (context, ref, _) {
+          final currentSettings = ref.watch(termFormSettingsProvider);
+          final notifier = ref.read(termFormSettingsProvider.notifier);
+
+          return AlertDialog(
+            title: const Text('Term Form Settings'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Auto Add AI Translations'),
-                  const Spacer(),
-                  Transform.scale(
-                    scale: 0.8,
-                    child: Switch(
-                      value: settings.autoAddAITranslations,
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Show Image Button'),
+                    value: currentSettings.showImages,
+                    onChanged: (value) {
+                      notifier.updateShowImages(value);
+                    },
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Show Romanization'),
+                    value: currentSettings.showRomanization,
+                    onChanged: (value) {
+                      notifier.updateShowRomanization(value);
+                    },
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Show Tags'),
+                    value: currentSettings.showTags,
+                    onChanged: (value) {
+                      notifier.updateShowTags(value);
+                    },
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Show Tooltip Images'),
+                    value: currentSettings.showTooltipImages,
+                    onChanged: (value) {
+                      notifier.updateShowTooltipImages(value);
+                    },
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Word Glow Effect'),
+                    value: currentSettings.wordGlowEnabled,
+                    onChanged: (value) {
+                      notifier.updateWordGlowEnabled(value);
+                    },
+                  ),
+                  if (shouldShowAIOption) ...[
+                    const Divider(),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Auto-fetch AI for new terms'),
+                      value: currentSettings.autoFetchAITranslationsForStatus0,
                       onChanged: (value) {
-                        ref
-                            .read(termFormSettingsProvider.notifier)
-                            .updateAutoAddAITranslations(value);
-                        Navigator.of(context).pop();
+                        notifier.updateAutoFetchAITranslationsForStatus0(value);
                       },
                     ),
-                  ),
-                ],
-              ),
-            if (shouldShowAIOption)
-              Row(
-                children: [
-                  const Text('Auto Fetch for Status 0'),
-                  const Spacer(),
-                  Transform.scale(
-                    scale: 0.8,
-                    child: Switch(
-                      value: settings.autoFetchAITranslationsForStatus0,
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Auto-add AI translations to field'),
+                      value: currentSettings.autoAddAITranslations,
                       onChanged: (value) {
-                        ref
-                            .read(termFormSettingsProvider.notifier)
-                            .updateAutoFetchAITranslationsForStatus0(value);
-                        Navigator.of(context).pop();
+                        notifier.updateAutoAddAITranslations(value);
                       },
                     ),
-                  ),
+                  ],
                 ],
               ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  void _toggleDictionary() {
-    setState(() {
-      _isDictionaryOpen = !_isDictionaryOpen;
-      widget.onDictionaryToggle?.call(_isDictionaryOpen);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final settings = ref.watch(termFormSettingsProvider);
-    final appService = ref.watch(androidAppServiceProvider);
-    final appConfig = ref.watch(localAppTabConfigProvider);
-    final shouldShowLocalApps =
-        appService.isSupportedPlatform && appConfig.enabled;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeInOut,
-      constraints: _isDictionaryOpen
-          ? null
-          : BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.85,
-            ),
-      child: _isDictionaryOpen
-          ? Container(
-              constraints: BoxConstraints(
-                minHeight: 200,
-                maxHeight: MediaQuery.of(context).size.height * 0.9,
-              ),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: context.appColorScheme.background.background,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(20),
+  void _showHeightAdjustmentDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Popup Settings'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Popup Height',
+                  style: TextStyle(fontWeight: FontWeight.w600),
                 ),
-              ),
-              child: Column(
-                children: [
-                  _buildHeader(context),
-                  const SizedBox(height: 12),
-                  _buildTranslationField(context),
-                  if (settings.showParentsInDictionary) ...[
-                    const SizedBox(height: 12),
-                    _buildParentsSection(context),
-                  ],
-                  const SizedBox(height: 12),
-                  Expanded(child: _buildDictionaryView(context)),
-                ],
-              ),
-            )
-          : SingleChildScrollView(
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: context.appColorScheme.background.background,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(20),
-                  ),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    _buildHeader(context),
-                    const SizedBox(height: 12),
-                    _buildTranslationField(context),
-                    const SizedBox(height: 12),
-                    _buildStatusField(context),
-                    if (widget.termForm.showRomanization) ...[
-                      const SizedBox(height: 12),
-                      _buildRomanizationField(context),
-                    ],
-                    if (settings.showTags) ...[
-                      const SizedBox(height: 12),
-                      _buildTagsSection(context),
-                    ],
-                    const SizedBox(height: 12),
-                    _buildParentsSection(context),
-                    if (shouldShowLocalApps) ...[
-                      const SizedBox(height: 12),
-                      AndroidAppLauncherView(
-                        key: ValueKey('term_launcher_${widget.termForm.term}'),
-                        text: widget.termForm.term,
-                        isSentence: false,
-                        isInline: true,
-                        autoInvoke: !_hasAutoInvokedLocalApp,
-                        onAutoInvoked: () {
-                          _hasAutoInvokedLocalApp = true;
-                        },
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-                    _buildButtons(context),
-                  ],
+                    200,
+                    250,
+                    300,
+                    350,
+                    400,
+                    450,
+                    500,
+                    550,
+                    600,
+                  ].map((h) {
+                    final isSelected = _popupHeight == h;
+                    return ChoiceChip(
+                      label: Text('${h}px'),
+                      selected: isSelected,
+                      onSelected: (selected) async {
+                        if (selected) {
+                          setDialogState(() {
+                            _popupHeight = h;
+                          });
+                          setState(() {
+                            _popupHeight = h;
+                          });
+                          await _dictionaryService.setTermFormPopupHeight(h);
+                        }
+                      },
+                    );
+                  }).toList(),
                 ),
-              ),
+                const Divider(height: 24),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.sort),
+                  title: const Text('Reorder Tabs'),
+                  subtitle: const Text('Change tab order'),
+                  onTap: () {
+                    Navigator.pop(dialogContext);
+                    _openTabReorderDialog();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.tune),
+                  title: const Text('Term Form Settings'),
+                  subtitle: const Text('Images, Tags, Romanization, AI'),
+                  onTap: () {
+                    Navigator.pop(dialogContext);
+                    _showSettingsMenu();
+                  },
+                ),
+              ],
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Done'),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -507,8 +572,8 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
             actions: [
               TextButton(
                 onPressed: () {
-                  termEditController.text = termEditController.text
-                      .toLowerCase();
+                  termEditController.text =
+                      termEditController.text.toLowerCase();
                   setDialogState(() {});
                 },
                 child: const Icon(Icons.format_size),
@@ -533,218 +598,6 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
           );
         },
       ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    final settings = ref.watch(termFormSettingsProvider);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              Flexible(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onLongPress: () => _showEditTermDialog(context),
-                  child: Text(
-                    widget.termForm.term,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Consumer(
-                builder: (context, ref, child) {
-                  final ttsState = ref.watch(sentenceTTSProvider);
-                  final isCurrentTerm =
-                      ttsState.currentText == widget.termForm.term;
-
-                  IconData icon;
-                  Color color;
-                  VoidCallback? onPressed;
-
-                  if (isCurrentTerm && ttsState.isLoading) {
-                    icon = Icons.hourglass_empty;
-                    color = context.m3Primary;
-                    onPressed = null;
-                  } else if (isCurrentTerm && ttsState.isPlaying) {
-                    icon = Icons.stop;
-                    color = context.error;
-                    onPressed = () =>
-                        ref.read(sentenceTTSProvider.notifier).stop();
-                  } else {
-                    icon = Icons.volume_up;
-                    color = context.m3Primary;
-                    onPressed = () => ref
-                        .read(sentenceTTSProvider.notifier)
-                        .speakSentence(widget.termForm.term, 0);
-                  }
-
-                  return IconButton(
-                    icon: Icon(icon),
-                    color: color,
-                    onPressed: onPressed,
-                    tooltip: isCurrentTerm && ttsState.isPlaying
-                        ? 'Stop TTS'
-                        : 'Read term',
-                    constraints: const BoxConstraints(
-                      minWidth: 40,
-                      minHeight: 40,
-                    ),
-                    padding: EdgeInsets.zero,
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-        Row(
-          children: [
-            if (settings.showImages) ...[
-              _buildImageButton(context),
-              const SizedBox(width: 4),
-            ],
-            IconButton(
-              onPressed: _showSettingsMenu,
-              icon: const Icon(Icons.settings),
-              tooltip: 'Term Form Settings',
-            ),
-            IconButton(
-              onPressed: () {
-                if (settings.autoSave) {
-                  _handleSave();
-                } else {
-                  widget.onCancel();
-                }
-              },
-              icon: const Icon(Icons.close),
-              tooltip: 'Close',
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTranslationField(BuildContext context) {
-    final accentColor = _isDictionaryOpen
-        ? context.m3Primary
-        : context.appColorScheme.border.outline;
-    final settings = ref.watch(termFormSettingsProvider);
-
-    final aiSettings = ref.watch(aiSettingsProvider);
-    final termConfig = aiSettings.promptConfigs[AIPromptType.termTranslation];
-    final shouldShowAI =
-        aiSettings.provider != AIProvider.none && termConfig?.enabled == true;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!settings.autoAddAITranslations &&
-                  _pendingAITranslations.isNotEmpty) ...[
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: _pendingAITranslations.map((translation) {
-                      return ActionChip(
-                        avatar: const Icon(Icons.add_circle_outline, size: 18),
-                        label: Text(translation),
-                        onPressed: () =>
-                            _addPendingTranslationToField(translation),
-                        visualDensity: VisualDensity.compact,
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ],
-              TextFormField(
-                controller: _translationController,
-                decoration: InputDecoration(
-                  labelText: 'Translation',
-                  labelStyle: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: context.m3Secondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  hintText: 'Enter translation',
-                  hintStyle: TextStyle(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.5),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                ),
-                maxLines: 2,
-                onChanged: (_) => setState(_updateForm),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        if (shouldShowAI)
-          SizedBox(
-            width: 56,
-            height: 56,
-            child: ElevatedButton(
-              onPressed: _isLoadingAITranslation ? null : _fetchAITranslation,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: context.m3Primary,
-                foregroundColor: context.appColorScheme.text.onPrimary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: EdgeInsets.zero,
-              ),
-              child: _isLoadingAITranslation
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          context.appColorScheme.text.onPrimary,
-                        ),
-                      ),
-                    )
-                  : const Icon(Icons.psychology, size: 28),
-            ),
-          ),
-        if (shouldShowAI) const SizedBox(width: 4),
-        SizedBox(
-          width: 56,
-          height: 56,
-          child: ElevatedButton(
-            onPressed: _toggleDictionary,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: accentColor,
-              foregroundColor: _isDictionaryOpen
-                  ? context.appColorScheme.text.onPrimary
-                  : context.appColorScheme.text.primary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              padding: EdgeInsets.zero,
-            ),
-            child: const Center(child: Icon(Icons.search, size: 28)),
-          ),
-        ),
-      ],
     );
   }
 
@@ -811,255 +664,45 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     }
   }
 
-  Widget _buildStatusField(BuildContext context) {
-    return Wrap(
-      spacing: 4,
-      runSpacing: 4,
-      children: [
-        _buildStatusButton(context, '1', '1', _getStatusColor('1')),
-        _buildStatusButton(context, '2', '2', _getStatusColor('2')),
-        _buildStatusButton(context, '3', '3', _getStatusColor('3')),
-        _buildStatusButton(context, '4', '4', _getStatusColor('4')),
-        _buildStatusButton(context, '5', '5', _getStatusColor('5')),
-        _buildStatusButton(context, '99', '✓', _getStatusColor('99')),
-        _buildStatusButton(context, '98', '✕', _getStatusColor('98')),
-      ],
-    );
-  }
+  // --- Image search methods ---
+  Future<void> _searchImages() async {
+    final query = _imageSearchController.text.trim();
+    if (query.isEmpty) return;
 
-  Color _getStatusColor(String status) {
-    return context.getStatusColor(status);
-  }
+    setState(() {
+      _isLoadingImages = true;
+      _imageSearchError = null;
+    });
 
-  Widget _buildStatusButton(
-    BuildContext context,
-    String statusValue,
-    String label,
-    Color statusColor,
-  ) {
-    final isSelected = _selectedStatus == statusValue;
-
-    final labelColor = !isSelected && statusValue == '5'
-        ? _getStatusColor('4')
-        : (isSelected ? context.appColorScheme.text.onPrimary : statusColor);
-
-    return InkWell(
-      onTap: () {
+    try {
+      final results = await widget.contentService.searchTermImages(
+        widget.termForm.languageId,
+        query,
+        '',
+      );
+      if (mounted) {
         setState(() {
-          _selectedStatus = statusValue;
+          _imageSearchResults = results;
+          if (results.isEmpty) {
+            _imageSearchError = 'No images found';
+          }
         });
-        _updateForm();
-      },
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: isSelected
-              ? statusColor
-              : context.getStatusColorWithOpacity(statusValue),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: statusColor, width: isSelected ? 2 : 1),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: labelColor,
-            ),
-          ),
-        ),
-      ),
-    );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _imageSearchError = _extractErrorMessage(e);
+          _imageSearchResults = [];
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingImages = false;
+        });
+      }
+    }
   }
-
-  Widget _buildRomanizationField(BuildContext context) {
-    return TextFormField(
-      controller: _romanizationController,
-      decoration: InputDecoration(
-        labelText: 'Romanization',
-        labelStyle: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: context.m3Secondary,
-          fontWeight: FontWeight.w600,
-        ),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        hintText: 'Enter romanization (optional)',
-        hintStyle: TextStyle(
-          color: context.appColorScheme.text.primary.withValues(alpha: 0.5),
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      ),
-      onChanged: (_) => _updateForm(),
-    );
-  }
-
-  Widget _buildImageButton(BuildContext context) {
-    return IconButton(
-      onPressed: _showImageManagerDialog,
-      tooltip: 'Manage image',
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-      icon: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              border: Border.all(color: context.appColorScheme.border.outline),
-              borderRadius: BorderRadius.circular(6),
-              color: context.appColorScheme.background.surface,
-            ),
-            child: _currentImageUrl != null && _currentImageUrl!.trim().isNotEmpty
-                ? LuteImage(
-                    imageUrl: _currentImageUrl,
-                    borderRadius: BorderRadius.circular(5),
-                    fit: BoxFit.cover,
-                    errorWidget: _buildSmallImagePlaceholder(context),
-                    placeholder: _buildSmallImagePlaceholder(context),
-                  )
-                : _buildSmallImagePlaceholder(context),
-          ),
-          if (_isSavingImage)
-            Positioned(
-              right: -2,
-              bottom: -2,
-              child: Container(
-                width: 12,
-                height: 12,
-                padding: const EdgeInsets.all(1),
-                decoration: BoxDecoration(
-                  color: context.appColorScheme.background.surface,
-                  shape: BoxShape.circle,
-                ),
-                child: const CircularProgressIndicator(strokeWidth: 1.5),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  void _showImageManagerDialog() {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          _imageDialogSetState = setDialogState;
-          return AlertDialog(
-            title: const Text('Term Image'),
-            content: SizedBox(
-              width: 440,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: context.appColorScheme.border.outline,
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: _currentImageUrl != null
-                        ? AspectRatio(
-                            aspectRatio: 16 / 9,
-                            child: LuteImage(
-                              imageUrl: _currentImageUrl,
-                              borderRadius: BorderRadius.circular(8),
-                              fit: BoxFit.cover,
-                              errorWidget: _buildImagePlaceholder(context),
-                              placeholder: _buildImagePlaceholder(context),
-                            ),
-                          )
-                        : _buildImagePlaceholder(context),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    _currentImageFilename?.isNotEmpty == true
-                        ? _currentImageFilename!
-                        : 'No image attached',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed:
-                            (_isSavingImage || _currentImageFilename == null)
-                            ? null
-                            : _removeImage,
-                        icon: const Icon(Icons.delete_outline),
-                        label: const Text('Remove'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _isSavingImage ? null : _pickAndUploadImage,
-                        icon: const Icon(Icons.upload_file),
-                        label: const Text('Upload'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _isSavingImage
-                            ? null
-                            : () => _showImageUrlDialog(dialogContext),
-                        icon: const Icon(Icons.link),
-                        label: const Text('From URL'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _isSavingImage
-                            ? null
-                            : () => _showImageSearchDialog(dialogContext),
-                        icon: const Icon(Icons.image_search),
-                        label: const Text('Search'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  _imageDialogSetState = null;
-                  Navigator.of(dialogContext).pop();
-                },
-                child: const Text('Close'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildSmallImagePlaceholder(BuildContext context) {
-    return Icon(
-      Icons.image_outlined,
-      size: 16,
-      color: context.m3Secondary.withValues(alpha: 0.8),
-    );
-  }
-
-  Widget _buildImagePlaceholder(BuildContext context) {
-    return Container(
-      height: 220,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: context.appColorScheme.background.surface,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      alignment: Alignment.center,
-      child: Icon(
-        Icons.image_outlined,
-        size: 56,
-        color: context.m3Secondary.withValues(alpha: 0.8),
-      ),
-    );
-  }
-
 
   Future<void> _pickAndUploadImage() async {
     final result = await FilePicker.pickFiles(
@@ -1135,170 +778,6 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     );
   }
 
-  void _showImageSearchDialog(BuildContext context) {
-    final controller = TextEditingController(text: widget.termForm.term);
-    List<TermImageSearchResult> results = const [];
-    String? errorMessage;
-    bool isLoading = false;
-    bool initialSearchTriggered = false;
-
-    Future<void> runSearch(StateSetter setDialogState) async {
-      final query = controller.text.trim();
-      if (query.isEmpty) {
-        setDialogState(() {
-          errorMessage = 'Enter a search query';
-          results = const [];
-        });
-        return;
-      }
-
-      setDialogState(() {
-        isLoading = true;
-        errorMessage = null;
-      });
-
-      try {
-        final searchResults = await widget.contentService.searchTermImages(
-          widget.termForm.languageId,
-          query,
-          '',
-        );
-
-        setDialogState(() {
-          results = searchResults;
-          if (searchResults.isEmpty) {
-            errorMessage = 'No images found';
-          }
-        });
-      } catch (e) {
-        setDialogState(() {
-          errorMessage = _extractErrorMessage(e);
-          results = const [];
-        });
-      } finally {
-        setDialogState(() {
-          isLoading = false;
-        });
-      }
-    }
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          if (!initialSearchTriggered) {
-            initialSearchTriggered = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (dialogContext.mounted) {
-                runSearch(setDialogState);
-              }
-            });
-          }
-
-          return AlertDialog(
-            title: const Text('Search Images'),
-            content: SizedBox(
-              width: 420,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: controller,
-                          autofocus: true,
-                          decoration: const InputDecoration(
-                            hintText: 'Search for an image',
-                          ),
-                          textInputAction: TextInputAction.search,
-                          onSubmitted: (_) => runSearch(setDialogState),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: isLoading
-                            ? null
-                            : () => runSearch(setDialogState),
-                        child: const Text('Search'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (errorMessage != null)
-                    Text(errorMessage!, style: TextStyle(color: context.error)),
-                  if (isLoading)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (results.isNotEmpty)
-                    SizedBox(
-                      height: 360,
-                      child: GridView.builder(
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              crossAxisSpacing: 8,
-                              mainAxisSpacing: 8,
-                              childAspectRatio: 1,
-                            ),
-                        itemCount: results.length,
-                        itemBuilder: (context, index) {
-                          final result = results[index];
-                          final previewUrl =
-                              result.thumbnailUrl ?? result.imageUrl;
-                          return InkWell(
-                            onTap: () async {
-                              Navigator.of(dialogContext).pop();
-                              await _saveImage(
-                                operation: () =>
-                                    widget.contentService.saveTermImageFromUrl(
-                                      widget.termForm.languageId,
-                                      widget.termForm.term,
-                                      result.imageUrl,
-                                    ),
-                                successMessage: 'Image saved',
-                              );
-                            },
-                            borderRadius: BorderRadius.circular(8),
-                            child: Ink(
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                  color: context.appColorScheme.border.outline,
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: LuteImage(
-                                imageUrl: previewUrl,
-                                borderRadius: BorderRadius.circular(8),
-                                fit: BoxFit.cover,
-                                errorWidget: _buildImagePlaceholder(context),
-                                placeholder: _buildImagePlaceholder(context),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                },
-                child: const Text('Close'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
   Future<void> _saveImage({
     required Future<TermImageUploadResult> Function() operation,
     required String successMessage,
@@ -1315,7 +794,6 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
         _currentImageUrl = result.imageUrl ?? _currentImageUrl;
         _currentImageFilename = result.imageFilename ?? _currentImageFilename;
       });
-      _imageDialogSetState?.call(() {});
 
       final updatedForm = widget.termForm.copyWith(
         imageUrl: _currentImageUrl,
@@ -1350,7 +828,6 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
       _currentImageUrl = null;
       _currentImageFilename = null;
     });
-    _imageDialogSetState?.call(() {});
 
     widget.onUpdate(widget.termForm.copyWith(clearImage: true));
 
@@ -1364,9 +841,8 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
   String _extractErrorMessage(Object error) {
     final raw = error.toString();
     final marker = 'Exception: ';
-    final normalized = raw.startsWith(marker)
-        ? raw.substring(marker.length)
-        : raw;
+    final normalized =
+        raw.startsWith(marker) ? raw.substring(marker.length) : raw;
 
     try {
       final decoded = jsonDecode(normalized);
@@ -1378,11 +854,764 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
           }
         }
       }
-    } catch (_) {
-      // Fall back to the raw error text.
-    }
+    } catch (_) {}
 
     return normalized;
+  }
+
+  // --- UI Builders ---
+  @override
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final maxModalHeight = screenHeight * 0.94;
+    final viewInsets = MediaQuery.of(context).viewInsets;
+    final maxAvailableHeight =
+        (screenHeight - viewInsets.bottom - 16).clamp(300.0, maxModalHeight);
+
+    if (!_hasLoaded) {
+      return Container(
+        constraints: BoxConstraints(maxHeight: maxAvailableHeight),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: context.appColorScheme.background.background,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(20),
+          ),
+        ),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: maxAvailableHeight,
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      decoration: BoxDecoration(
+        color: context.appColorScheme.background.background,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(20),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: DictionaryBrowserView(
+              key: _browserViewKey,
+              dictionaries: _dictionaries,
+              initialPage: _currentPage,
+              searchText: widget.termForm.term,
+              sentence: widget.sentence,
+              languageId: widget.termForm.languageId,
+              isSentence: false,
+              dictionaryService: widget.dictionaryService,
+              onPageChanged: (index) {
+                _currentPage = index;
+                if (index < _dictionaries.length &&
+                    _dictionaries[index].isImages &&
+                    _imageSearchResults.isEmpty &&
+                    !_isLoadingImages) {
+                  _searchImages();
+                }
+              },
+              onOpenSettings: () => _showHeightAdjustmentDialog(context),
+              customTabBuilder: (context, dict, index) {
+                if (dict.isImages) {
+                  return _buildImagesPageView(context);
+                }
+                return null;
+              },
+              onAddAITranslationToField: _addPendingTranslationToField,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 14, bottom: 14),
+            child: Divider(
+              height: 1,
+              thickness: 1.5,
+              color: Theme.of(context)
+                  .colorScheme
+                  .outline
+                  .withValues(alpha: 0.35),
+            ),
+          ),
+          _buildTermFormSection(context),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildImagesPageView(BuildContext context) {
+    return Column(
+      children: [
+        // Top search bar + upload actions
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 36,
+                  child: TextField(
+                    controller: _imageSearchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search images...',
+                      hintStyle: const TextStyle(fontSize: 12),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 0,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.search, size: 18),
+                        padding: EdgeInsets.zero,
+                        onPressed: _searchImages,
+                      ),
+                    ),
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) => _searchImages(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Tooltip(
+                message: 'Upload file',
+                child: IconButton(
+                  icon: const Icon(Icons.upload_file, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: 34, height: 34),
+                  onPressed: _isSavingImage ? null : _pickAndUploadImage,
+                ),
+              ),
+              Tooltip(
+                message: 'From URL',
+                child: IconButton(
+                  icon: const Icon(Icons.link, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: 34, height: 34),
+                  onPressed:
+                      _isSavingImage ? null : () => _showImageUrlDialog(context),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // If currently attached image exists, show current preview banner
+        if (_currentImageUrl != null &&
+            _currentImageUrl!.trim().isNotEmpty) ...[
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: context.appColorScheme.background.surfaceContainerHighest
+                  .withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: context.appColorScheme.border.dividerColor
+                    .withValues(alpha: 0.5),
+              ),
+            ),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: LuteImage(
+                      imageUrl: _currentImageUrl,
+                      fit: BoxFit.cover,
+                      errorWidget: _buildSmallImagePlaceholder(context),
+                      placeholder: _buildSmallImagePlaceholder(context),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _currentImageFilename?.isNotEmpty == true
+                        ? 'Current: $_currentImageFilename'
+                        : 'Current term image',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    size: 18,
+                    color: Colors.redAccent,
+                  ),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: 30, height: 30),
+                  tooltip: 'Remove current image',
+                  onPressed: _isSavingImage ? null : _removeImage,
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // Grid of search results or states
+        Expanded(
+          child: _isLoadingImages
+              ? const Center(child: CircularProgressIndicator())
+              : _imageSearchError != null
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.broken_image_outlined,
+                            size: 36,
+                            color: context.error,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _imageSearchError!,
+                            style: TextStyle(
+                              color: context.error,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            onPressed: _searchImages,
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : _imageSearchResults.isEmpty
+                      ? Center(
+                          child: TextButton.icon(
+                            onPressed: _searchImages,
+                            icon: const Icon(Icons.image_search),
+                            label: const Text('Search Images for this term'),
+                          ),
+                        )
+                      : GridView.builder(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 8,
+                            mainAxisSpacing: 8,
+                            childAspectRatio: 1.3,
+                          ),
+                          itemCount: _imageSearchResults.length,
+                          itemBuilder: (context, index) {
+                            final result = _imageSearchResults[index];
+                            final previewUrl =
+                                result.thumbnailUrl ?? result.imageUrl;
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: _isSavingImage
+                                    ? null
+                                    : () async {
+                                        await _saveImage(
+                                          operation: () => widget.contentService
+                                              .saveTermImageFromUrl(
+                                            widget.termForm.languageId,
+                                            widget.termForm.term,
+                                            result.imageUrl,
+                                          ),
+                                          successMessage:
+                                              'Image saved as term image',
+                                        );
+                                      },
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    border: Border.all(
+                                      color: context
+                                          .appColorScheme.border.dividerColor,
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(7),
+                                    child: LuteImage(
+                                      imageUrl: previewUrl,
+                                      fit: BoxFit.cover,
+                                      errorWidget:
+                                          _buildImagePlaceholder(context),
+                                      placeholder:
+                                          _buildImagePlaceholder(context),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSmallImagePlaceholder(BuildContext context) {
+    return Icon(
+      Icons.image_outlined,
+      size: 16,
+      color: context.m3Secondary.withValues(alpha: 0.8),
+    );
+  }
+
+  Widget _buildImagePlaceholder(BuildContext context) {
+    return Container(
+      height: 180,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: context.appColorScheme.background.surface,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.image_outlined,
+        size: 48,
+        color: context.m3Secondary.withValues(alpha: 0.8),
+      ),
+    );
+  }
+
+  // --- Bottom Term Form Section ---
+  Widget _buildTermFormSection(BuildContext context) {
+    final settings = ref.watch(termFormSettingsProvider);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: context.appColorScheme.background.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: context.appColorScheme.border.dividerColor
+              .withValues(alpha: 0.5),
+          width: 1,
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Row 1: Term Title + TTS Button + (Right: Image Button if enabled)
+            Row(
+              children: [
+                Flexible(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onLongPress: () => _showEditTermDialog(context),
+                    child: Text(
+                      widget.termForm.term,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: context.appColorScheme.text.primary,
+                          ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Consumer(
+                  builder: (context, ref, child) {
+                    final ttsState = ref.watch(sentenceTTSProvider);
+                    final isCurrentTerm =
+                        ttsState.currentText == widget.termForm.term;
+
+                    IconData icon;
+                    Color color;
+                    VoidCallback? onPressed;
+
+                    if (isCurrentTerm && ttsState.isLoading) {
+                      icon = Icons.hourglass_empty;
+                      color = context.m3Primary;
+                      onPressed = null;
+                    } else if (isCurrentTerm && ttsState.isPlaying) {
+                      icon = Icons.stop;
+                      color = context.error;
+                      onPressed = () =>
+                          ref.read(sentenceTTSProvider.notifier).stop();
+                    } else {
+                      icon = Icons.volume_up;
+                      color = context.m3Primary;
+                      onPressed = () => ref
+                          .read(sentenceTTSProvider.notifier)
+                          .speakSentence(widget.termForm.term, 0);
+                    }
+
+                    return IconButton(
+                      icon: Icon(icon, size: 20),
+                      color: color,
+                      onPressed: onPressed,
+                      tooltip: isCurrentTerm && ttsState.isPlaying
+                          ? 'Stop TTS'
+                          : 'Read term',
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                    );
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+
+            // Row 2: Translation Field + AI Quick add + Image Button
+            _buildTranslationField(context),
+            const SizedBox(height: 8),
+
+            // Row 3: Status buttons (1, 2, 3, 4, 5, ✓ 99, ✕ 98) evenly spaced
+            _buildStatusField(context),
+
+            if (widget.termForm.showRomanization &&
+                settings.showRomanization) ...[
+              const SizedBox(height: 8),
+              _buildRomanizationField(context),
+            ],
+            if (settings.showTags) ...[
+              const SizedBox(height: 8),
+              _buildTagsSection(context),
+            ],
+            const SizedBox(height: 8),
+            _buildParentsSection(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFormImageButton(BuildContext context) {
+    final hasImage =
+        _currentImageUrl != null && _currentImageUrl!.trim().isNotEmpty;
+
+    return Tooltip(
+      message: hasImage ? 'View / Search Images' : 'Search images',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _navigateToImagesTab,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            decoration: BoxDecoration(
+              color: context.appColorScheme.background.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: context.appColorScheme.border.dividerColor,
+                width: 1,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(7),
+              child: hasImage
+                  ? LuteImage(
+                      imageUrl: _currentImageUrl,
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.cover,
+                      errorWidget: Icon(
+                        Icons.image_outlined,
+                        size: 22,
+                        color: context.appColorScheme.text.primary
+                            .withValues(alpha: 0.7),
+                      ),
+                      placeholder: Icon(
+                        Icons.image_outlined,
+                        size: 22,
+                        color: context.appColorScheme.text.primary
+                            .withValues(alpha: 0.7),
+                      ),
+                    )
+                  : Icon(
+                      Icons.image_outlined,
+                      size: 22,
+                      color: context.appColorScheme.text.primary
+                          .withValues(alpha: 0.7),
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTranslationField(BuildContext context) {
+    final settings = ref.watch(termFormSettingsProvider);
+    final aiSettings = ref.watch(aiSettingsProvider);
+    final termConfig = aiSettings.promptConfigs[AIPromptType.termTranslation];
+    final shouldShowAI =
+        aiSettings.provider != AIProvider.none && termConfig?.enabled == true;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!settings.autoAddAITranslations &&
+            _pendingAITranslations.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: _pendingAITranslations.map((translation) {
+                return ActionChip(
+                  avatar: const Icon(Icons.add_circle_outline, size: 16),
+                  label: Text(
+                    translation,
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  onPressed: () =>
+                      _addPendingTranslationToField(translation),
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 0,
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+        SizedBox(
+          height: 60,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _translationController,
+                  decoration: InputDecoration(
+                    labelText: 'Translation',
+                    labelStyle:
+                        Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: context.m3Secondary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    hintText: 'Enter translation',
+                    hintStyle: TextStyle(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.5),
+                      fontSize: 12,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                  ),
+                  maxLines: 2,
+                  onChanged: (_) => setState(_updateForm),
+                ),
+              ),
+              if (shouldShowAI) ...[
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 60,
+                  height: 60,
+                  child: ElevatedButton(
+                    onPressed: _isLoadingAITranslation
+                        ? null
+                        : _fetchAITranslation,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: context.m3Primary,
+                      foregroundColor:
+                          context.appColorScheme.text.onPrimary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: EdgeInsets.zero,
+                    ),
+                    child: _isLoadingAITranslation
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                context.appColorScheme.text.onPrimary,
+                              ),
+                            ),
+                          )
+                        : const Icon(Icons.psychology, size: 22),
+                  ),
+                ),
+              ],
+              if (settings.showImages) ...[
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 60,
+                  height: 60,
+                  child: _buildFormImageButton(context),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusField(BuildContext context) {
+    final statusItems = [
+      ('1', '1', _getStatusColor('1')),
+      ('2', '2', _getStatusColor('2')),
+      ('3', '3', _getStatusColor('3')),
+      ('4', '4', _getStatusColor('4')),
+      ('5', '5', _getStatusColor('5')),
+      ('99', '✓', _getStatusColor('99')),
+      ('98', '✕', _getStatusColor('98')),
+    ];
+
+    return Row(
+      children: statusItems.map((item) {
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: _buildStatusButton(context, item.$1, item.$2, item.$3),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Color _getStatusColor(String status) {
+    return context.getStatusColorForVisualization(status);
+  }
+
+  Widget _buildStatusButton(
+    BuildContext context,
+    String statusValue,
+    String label,
+    Color statusColor,
+  ) {
+    final isSelected = _selectedStatus == statusValue;
+
+    // Special styling for Well-Known (99): classic green background with white checkmark
+    if (statusValue == '99') {
+      const greenColor = Color(0xFF2E7D32);
+      final bgColor =
+          isSelected ? greenColor : greenColor.withValues(alpha: 0.28);
+      final borderColor =
+          isSelected ? greenColor : greenColor.withValues(alpha: 0.7);
+      final checkColor = isSelected
+          ? const Color(0xFFFFFFFF)
+          : const Color(0xFFFFFFFF).withValues(alpha: 0.45);
+
+      return InkWell(
+        onTap: () {
+          final oldStatus = _selectedStatus;
+          setState(() {
+            _selectedStatus = statusValue;
+          });
+          if (oldStatus != '99') {
+            widget.onStatus99Changed?.call(widget.termForm.languageId);
+          }
+          _updateForm();
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          height: 38,
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: borderColor,
+              width: isSelected ? 2 : 1.2,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+                color: checkColor,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final labelColor = isSelected ? const Color(0xFFFFFFFF) : statusColor;
+    final bgColor =
+        isSelected ? statusColor : statusColor.withValues(alpha: 0.18);
+    final borderColor =
+        isSelected ? statusColor : statusColor.withValues(alpha: 0.55);
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedStatus = statusValue;
+        });
+        _updateForm();
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        height: 38,
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: borderColor,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: labelColor,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRomanizationField(BuildContext context) {
+    return TextFormField(
+      controller: _romanizationController,
+      decoration: InputDecoration(
+        labelText: 'Romanization',
+        labelStyle: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: context.m3Secondary,
+              fontWeight: FontWeight.w600,
+            ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        hintText: 'Enter romanization (optional)',
+        hintStyle: TextStyle(
+          color: context.appColorScheme.text.primary.withValues(alpha: 0.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 8,
+        ),
+      ),
+      onChanged: (_) => _updateForm(),
+    );
   }
 
   Widget _buildTagsSection(BuildContext context) {
@@ -1395,14 +1624,28 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
             Text(
               'Tags',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: context.m3Secondary,
-                fontWeight: FontWeight.w600,
-              ),
+                    color: context.m3Secondary,
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
-            ElevatedButton.icon(
+            OutlinedButton.icon(
               onPressed: () => _showAddTagDialog(context),
-              icon: const Icon(Icons.add),
-              label: const Text('Add Tag'),
+              icon: const Icon(Icons.add, size: 15),
+              label: const Text(
+                'Add Tag',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+              ),
+              style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                minimumSize: const Size(0, 28),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                side: BorderSide(
+                  color: context.appColorScheme.border.dividerColor,
+                ),
+              ),
             ),
           ],
         ),
@@ -1413,7 +1656,7 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
             child: Row(
               children: widget.termForm.tags!.map((tag) {
                 return Padding(
-                  padding: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.only(right: 6),
                   child: _buildTagChip(context, tag),
                 );
               }).toList(),
@@ -1427,9 +1670,11 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     return GestureDetector(
       onLongPress: () => _showDeleteTagConfirmation(context, tag),
       child: Chip(
-        label: Text(tag),
-        deleteIcon: const Icon(Icons.close, size: 18),
+        label: Text(tag, style: const TextStyle(fontSize: 11)),
+        deleteIcon: const Icon(Icons.close, size: 16),
         onDeleted: null,
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
       ),
     );
   }
@@ -1517,38 +1762,6 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
   }
 
   Widget _buildParentsSection(BuildContext context) {
-    final settings = ref.watch(termFormSettingsProvider);
-    final isInDictionaryMode =
-        _isDictionaryOpen && settings.showParentsInDictionary;
-
-    if (isInDictionaryMode) {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            ...widget.termForm.parents.map((parent) {
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: _buildParentChip(context, parent),
-              );
-            }),
-            ElevatedButton.icon(
-              onPressed: () => _showAddParentDialog(context),
-              icon: const Icon(Icons.add),
-              label: const Text('Add Parent'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Default layout: column with label row and chips row
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1558,46 +1771,61 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
             Text(
               'Parent Terms',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: context.m3Secondary,
-                fontWeight: FontWeight.w600,
-              ),
+                    color: context.m3Secondary,
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
-            if (!isInDictionaryMode)
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: widget.termForm.parents.length == 1
-                        ? _toggleSyncStatus
+            Row(
+              children: [
+                IconButton(
+                  onPressed: widget.termForm.parents.length == 1
+                      ? _toggleSyncStatus
+                      : null,
+                  icon: Icon(
+                    widget.termForm.parents.length > 1
+                        ? Icons.link_off
+                        : Icons.link,
+                    color: widget.termForm.parents.length == 1 &&
+                            widget.termForm.syncStatus == true
+                        ? context.success
                         : null,
-                    icon: Icon(
-                      widget.termForm.parents.length > 1
-                          ? Icons.link_off
-                          : Icons.link,
-                      color:
-                          widget.termForm.parents.length == 1 &&
-                              widget.termForm.syncStatus == true
-                          ? context.success
-                          : null,
+                  ),
+                  tooltip: widget.termForm.parents.length > 1
+                      ? 'Cannot sync - multiple parents'
+                      : (widget.termForm.syncStatus == true
+                          ? 'Sync with parent: ON'
+                          : 'Sync with parent: OFF'),
+                  iconSize: 18,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                  padding: EdgeInsets.zero,
+                ),
+                const SizedBox(width: 4),
+                OutlinedButton.icon(
+                  onPressed: () => _showAddParentDialog(context),
+                  icon: const Icon(Icons.add, size: 15),
+                  label: const Text(
+                    'Add Parent',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
                     ),
-                    tooltip: widget.termForm.parents.length > 1
-                        ? 'Cannot sync - multiple parents'
-                        : (widget.termForm.syncStatus == true
-                              ? 'Sync with parent: ON'
-                              : 'Sync with parent: OFF'),
-                    iconSize: 20,
-                    constraints: const BoxConstraints(
-                      minWidth: 40,
-                      minHeight: 40,
+                    minimumSize: const Size(0, 28),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    side: BorderSide(
+                      color: context.appColorScheme.border.dividerColor,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _showAddParentDialog(context),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add Parent'),
-                  ),
-                ],
-              ),
+                ),
+              ],
+            ),
           ],
         ),
         const SizedBox(height: 4),
@@ -1607,7 +1835,7 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
             child: Row(
               children: widget.termForm.parents.map((parent) {
                 return Padding(
-                  padding: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.only(right: 6),
                   child: _buildParentChip(context, parent),
                 );
               }).toList(),
@@ -1636,16 +1864,21 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
       },
       child: Chip(
         backgroundColor: backgroundColor,
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
         label: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(parent.term, style: TextStyle(color: textColor)),
+            Text(
+              parent.term,
+              style: TextStyle(color: textColor, fontSize: 11),
+            ),
             if (parent.translation != null) ...[
               const SizedBox(width: 4),
               Text(
                 '(${parent.translation})',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   color: Theme.of(
                     context,
                   ).colorScheme.onSurface.withValues(alpha: 0.7),
@@ -1743,53 +1976,5 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
         ],
       ),
     );
-  }
-
-  Widget _buildButtons(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: OutlinedButton(
-            onPressed: widget.onCancel,
-            child: const Text('Cancel'),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: _handleSave,
-            icon: const Icon(Icons.save),
-            label: const Text('Save'),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDictionaryView(BuildContext context) {
-    return DictionaryView(
-      term: widget.termForm.term,
-      sentence: widget.sentence,
-      dictionaries: _dictionaries,
-      languageId: widget.termForm.languageId,
-      onClose: _toggleDictionary,
-      isVisible: _isDictionaryOpen,
-      dictionaryService: _dictionaryService,
-      onAddAITranslation: _handleAddAITranslationToField,
-    );
-  }
-
-  void _handleAddAITranslationToField(String translation) {
-    final currentText = _translationController.text.trim().replaceAll(
-      '\n',
-      ' ',
-    );
-    final cleanTranslation = translation.replaceAll('\n', ' ');
-    final newText = currentText.isEmpty
-        ? cleanTranslation
-        : '$currentText, $cleanTranslation';
-
-    _translationController.text = newText;
-    _updateForm();
   }
 }

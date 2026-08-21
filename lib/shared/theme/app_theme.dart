@@ -739,6 +739,28 @@ class AppTheme {
     if (selectedUserTheme != null) {
       return selectedUserTheme.colorScheme;
     }
+
+    final accent = themeSettings.effectiveAccentColor;
+    if (accent != null && themeSettings.themeType != ThemeType.blackAndWhite) {
+      final isDark = themeSettings.themeType == ThemeType.dark;
+      return themePreset.copyWith(
+        material3: Material3ColorScheme(
+          primary: accent,
+          secondary: isDark
+              ? Color.lerp(accent, Colors.white, 0.25)!
+              : Color.lerp(accent, Colors.black, 0.25)!,
+          tertiary: themePreset.material3.tertiary,
+          primaryContainer: isDark
+              ? Color.lerp(accent, Colors.black, 0.6)!
+              : Color.lerp(accent, Colors.white, 0.75)!,
+          secondaryContainer: isDark
+              ? Color.lerp(accent, Colors.black, 0.75)!
+              : Color.lerp(accent, Colors.white, 0.88)!,
+          tertiaryContainer: themePreset.material3.tertiaryContainer,
+        ),
+      );
+    }
+
     return themePreset;
   }
 

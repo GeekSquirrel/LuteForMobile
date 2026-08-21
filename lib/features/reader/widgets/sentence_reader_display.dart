@@ -244,7 +244,7 @@ class _SentenceReaderDisplayState extends ConsumerState<SentenceReaderDisplay> {
               : Alignment.centerLeft,
           child: Wrap(
             spacing: 0,
-            runSpacing: 0,
+            runSpacing: 2,
             textDirection: textDirection,
             children: widget.sentence!.textItems.asMap().entries.map((entry) {
               final item = entry.value;

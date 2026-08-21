@@ -427,11 +427,17 @@ class ThemeSettings {
   final ThemeType themeType;
   final String? selectedThemeId;
   final List<UserThemeDefinition> userThemes;
+  final bool useDynamicColor;
+  final int? customAccentColor;
+  final int? systemMonetColor;
 
   ThemeSettings({
     this.themeType = ThemeType.dark,
     this.selectedThemeId,
     List<UserThemeDefinition>? userThemes,
+    this.useDynamicColor = false,
+    this.customAccentColor,
+    this.systemMonetColor,
   }) : userThemes = List.unmodifiable(userThemes ?? const []);
 
   UserThemeDefinition? get selectedUserTheme {
@@ -442,11 +448,25 @@ class ThemeSettings {
     return null;
   }
 
+  Color? get effectiveAccentColor {
+    if (useDynamicColor && systemMonetColor != null) {
+      return Color(systemMonetColor!);
+    }
+    if (customAccentColor != null) {
+      return Color(customAccentColor!);
+    }
+    return null;
+  }
+
   ThemeSettings copyWith({
     ThemeType? themeType,
     String? selectedThemeId,
     bool clearSelectedThemeId = false,
     List<UserThemeDefinition>? userThemes,
+    bool? useDynamicColor,
+    int? customAccentColor,
+    bool clearCustomAccentColor = false,
+    int? systemMonetColor,
   }) {
     return ThemeSettings(
       themeType: themeType ?? this.themeType,
@@ -454,6 +474,11 @@ class ThemeSettings {
           ? null
           : (selectedThemeId ?? this.selectedThemeId),
       userThemes: userThemes ?? this.userThemes,
+      useDynamicColor: useDynamicColor ?? this.useDynamicColor,
+      customAccentColor: clearCustomAccentColor
+          ? null
+          : (customAccentColor ?? this.customAccentColor),
+      systemMonetColor: systemMonetColor ?? this.systemMonetColor,
     );
   }
 
@@ -463,12 +488,21 @@ class ThemeSettings {
     return other is ThemeSettings &&
         other.themeType == themeType &&
         other.selectedThemeId == selectedThemeId &&
+        other.useDynamicColor == useDynamicColor &&
+        other.customAccentColor == customAccentColor &&
+        other.systemMonetColor == systemMonetColor &&
         _userThemeListEquals(other.userThemes, userThemes);
   }
 
   @override
-  int get hashCode =>
-      Object.hash(themeType, selectedThemeId, Object.hashAll(userThemes));
+  int get hashCode => Object.hash(
+        themeType,
+        selectedThemeId,
+        useDynamicColor,
+        customAccentColor,
+        systemMonetColor,
+        Object.hashAll(userThemes),
+      );
 
   static final ThemeSettings defaultSettings = ThemeSettings();
 }
