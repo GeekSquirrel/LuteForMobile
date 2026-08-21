@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app.dart';
 import '../../../core/logger/widget_logger.dart';
+import '../../../core/network/lute_http_client.dart';
 import '../../../shared/theme/theme_definitions.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/app_bar_leading.dart';
@@ -160,15 +161,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
     try {
-      final dio = Dio();
-      final response = await dio.get(
-        url,
-        options: Options(
-          headers: headers,
-          receiveTimeout: const Duration(seconds: 10),
-          sendTimeout: const Duration(seconds: 10),
-        ),
+      final client = LuteHttpClient(
+        baseUrl: url,
+        customHeaders: headers,
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+        sendTimeout: const Duration(seconds: 10),
       );
+      final response = await client.get<dynamic>('');
 
       if (response.statusCode == 200) {
         setState(() {

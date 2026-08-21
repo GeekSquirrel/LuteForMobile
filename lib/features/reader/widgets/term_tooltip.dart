@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/term_tooltip.dart';
+import '../../../core/widgets/lute_image.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../settings/providers/settings_provider.dart';
 
@@ -129,19 +130,13 @@ class _TooltipContent extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (showTooltipImages && termTooltip.imageUrl != null) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: Image.network(
-                    _resolveImageUrl(
-                      termTooltip.imageUrl!,
-                      ref.read(settingsProvider).serverUrl,
-                    ),
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
-                        const SizedBox.shrink(),
-                  ),
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: LuteImage(
+                  imageUrl: termTooltip.imageUrl,
+                  borderRadius: BorderRadius.circular(6),
+                  fit: BoxFit.cover,
+                  errorWidget: const SizedBox.shrink(),
                 ),
               ),
               const SizedBox(height: 8),
@@ -210,19 +205,6 @@ class _TooltipContent extends ConsumerWidget {
   }
 }
 
-String _resolveImageUrl(String imageUrl, String serverUrl) {
-  final trimmed = imageUrl.trim();
-  final uri = Uri.tryParse(trimmed);
-  if (uri != null && uri.hasScheme) {
-    return trimmed;
-  }
-
-  final normalizedServer = serverUrl.endsWith('/')
-      ? serverUrl.substring(0, serverUrl.length - 1)
-      : serverUrl;
-  final normalizedPath = trimmed.startsWith('/') ? trimmed : '/$trimmed';
-  return '$normalizedServer$normalizedPath';
-}
 
 class TermTooltipClass {
   static OverlayEntry? _currentEntry;

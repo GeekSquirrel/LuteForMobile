@@ -3,150 +3,30 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:lute_for_mobile/core/services/backup_service.dart';
-import 'package:lute_for_mobile/shared/providers/server_status_provider.dart';
 
 import 'api_request_queue.dart';
+import 'lute_http_client.dart';
 import 'queued_dio_interceptor.dart';
 
-class ApiService {
-  final Dio _dio;
-  static bool enableLogging = kDebugMode;
+class ApiService extends LuteHttpClient {
   static final ApiRequestQueue _requestQueue = ApiRequestQueue();
   static const String _defaultTermImageSearchParams =
       'q=[LUTE]&form=HDRSC2&first=1&tsc=ImageHoverTitle';
 
   ApiService({
-    required String baseUrl,
+    required super.baseUrl,
     Map<String, String> headers = const {},
     Dio? dio,
-  }) : _dio =
-           dio ??
-           Dio(
-             BaseOptions(
-               baseUrl: baseUrl,
-               connectTimeout: const Duration(seconds: 10),
-               receiveTimeout: const Duration(seconds: 10),
-               sendTimeout: const Duration(seconds: 10),
-               headers: {'Content-Type': 'text/html', ...headers},
-               followRedirects: false,
-               validateStatus: (status) => status != null && status < 400,
-             ),
-           ) {
-    _requestQueue.initialize(baseUrl, _dio);
-    _dio.interceptors.add(QueuedDioInterceptor(_requestQueue));
-    _addRetryInterceptor();
-    _addLoggingInterceptor();
-    _addStatusInterceptor();
+  }) : super(
+         customHeaders: headers,
+         customDio: dio,
+       ) {
+    _requestQueue.initialize(baseUrl, this.dio, headers);
+    this.dio.interceptors.add(QueuedDioInterceptor(_requestQueue));
   }
 
-  void _addStatusInterceptor() {
-    _dio.interceptors.add(
-      InterceptorsWrapper(
-        onResponse: (response, handler) {
-          ServerStatusManager.markSuccess();
-          return handler.next(response);
-        },
-        onError: (error, handler) {
-          ServerStatusManager.markError();
-          return handler.next(error);
-        },
-      ),
-    );
-  }
-
-  void _addRetryInterceptor() {
-    _dio.interceptors.add(
-      InterceptorsWrapper(
-        onError: (error, handler) async {
-          if (_shouldRetry(error)) {
-            final retryCount = error.requestOptions.extra['retryCount'] ?? 0;
-            if (retryCount < 1) {
-              error.requestOptions.extra['retryCount'] = retryCount + 1;
-              await Future.delayed(Duration(milliseconds: 200));
-              try {
-                final response = await _dio.fetch(error.requestOptions);
-                return handler.resolve(response);
-              } catch (e) {
-                return handler.next(error);
-              }
-            }
-          }
-          return handler.next(error);
-        },
-      ),
-    );
-  }
-
-  void _addLoggingInterceptor() {
-    _dio.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) {
-          if (enableLogging) {
-            print('API REQUEST: ${options.method} ${options.uri}');
-            if (options.data != null) {
-              print('  Data: ${options.data}');
-            }
-          }
-          return handler.next(options);
-        },
-        onResponse: (response, handler) {
-          if (enableLogging) {
-            print(
-              'API RESPONSE: ${response.requestOptions.method} ${response.requestOptions.uri} - ${response.statusCode}',
-            );
-          }
-          return handler.next(response);
-        },
-        onError: (error, handler) {
-          if (enableLogging) {
-            print(
-              'API ERROR: ${error.requestOptions.method} ${error.requestOptions.uri} - ${error.type}',
-            );
-          }
-          return handler.next(error);
-        },
-      ),
-    );
-  }
-
-  bool _shouldRetry(DioException error) {
-    if (error.requestOptions.extra['noRetry'] == true) {
-      return false;
-    }
-    if (error.type == DioExceptionType.connectionError) {
-      return true;
-    }
-    if (error.type == DioExceptionType.connectionTimeout) {
-      return true;
-    }
-    if (error.type == DioExceptionType.sendTimeout) {
-      return true;
-    }
-    if (error.type == DioExceptionType.unknown &&
-        error.error?.toString().contains('errno=103') == true) {
-      return true;
-    }
-    if (error.type == DioExceptionType.unknown &&
-        error.error?.toString().contains('Connection reset') == true) {
-      return true;
-    }
-    if (error.type == DioExceptionType.unknown &&
-        error.error?.toString().contains('Software caused connection abort') ==
-            true) {
-      return true;
-    }
-    if (error.type == DioExceptionType.receiveTimeout) {
-      return true;
-    }
-    if (error.type == DioExceptionType.cancel) {
-      return true;
-    }
-    return false;
-  }
-
-  bool get isConfigured => _dio.options.baseUrl.isNotEmpty;
-
-  String get baseUrl => _dio.options.baseUrl;
+  /// Helper to resolve term/book image URLs relative to the current Lute server baseUrl.
+  String resolveImageUrl(String pathOrUrl) => resolveUrl(pathOrUrl);
 
   /// Loads a book page for active reading session.
   ///
@@ -169,15 +49,15 @@ class ApiService {
     int bookId,
     int pageNum,
   ) async {
-    return await _dio.get<String>('/read/start_reading/$bookId/$pageNum');
+    return await get<String>('/read/start_reading/$bookId/$pageNum');
   }
 
   Future<Response<String>> peekBookPage(int bookId, int pageNum) async {
-    return await _dio.get<String>('/read/$bookId/peek/$pageNum');
+    return await get<String>('/read/$bookId/peek/$pageNum');
   }
 
   Future<Response<String>> refreshBookPage(int bookId, int pageNum) async {
-    return await _dio.get<String>('/read/refresh_page/$bookId/$pageNum');
+    return await get<String>('/read/refresh_page/$bookId/$pageNum');
   }
 
   Future<Response<String>> postPageDone(
@@ -185,7 +65,7 @@ class ApiService {
     int pageNum,
     bool restKnown,
   ) async {
-    return await _dio.post<String>(
+    return await post<String>(
       '/read/page_done',
       data: {
         'bookid': bookId,
@@ -206,22 +86,22 @@ class ApiService {
 
   Future<Response<String>> getTermTooltip(int termId) async {
     final url = '/read/termpopup/$termId';
-    return await _dio.get<String>(url);
+    return await get<String>(url);
   }
 
   Future<String> getRawTermTooltipHtml(int termId) async {
     final url = '/read/termpopup/$termId';
-    final response = await _dio.get<String>(url);
+    final response = await get<String>(url);
     return response.data ?? '';
   }
 
   Future<Response<String>> getTermForm(int langId, String text) async {
     final encodedText = Uri.encodeComponent(text);
-    return await _dio.get<String>('/read/termform/$langId/$encodedText');
+    return await get<String>('/read/termform/$langId/$encodedText');
   }
 
   Future<Response<String>> getTermFormById(int termId) async {
-    return await _dio.get<String>('/read/edit_term/$termId');
+    return await get<String>('/read/edit_term/$termId');
   }
 
   Future<Response<String>> postTermForm(
@@ -230,7 +110,7 @@ class ApiService {
     dynamic data,
   ) async {
     final encodedText = Uri.encodeComponent(text);
-    return await _dio.post<String>(
+    return await post<String>(
       '/read/termform/$langId/$encodedText',
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -238,7 +118,7 @@ class ApiService {
   }
 
   Future<Response<String>> editTerm(int termId, dynamic data) async {
-    return await _dio.post<String>(
+    return await post<String>(
       '/read/edit_term/$termId',
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -250,7 +130,7 @@ class ApiService {
     String text,
     String src,
   ) async {
-    return await _dio.post<String>(
+    return await post<String>(
       '/bing/save',
       data: {'src': src, 'text': text, 'langid': langId.toString()},
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -270,7 +150,7 @@ class ApiService {
         filename: _filenameFromPath(imagePath),
       ),
     });
-    return await _dio.post<String>('/bing/manual_image_post', data: payload);
+    return await post<String>('/bing/manual_image_post', data: payload);
   }
 
   Future<Response<String>> searchTermImages(
@@ -282,7 +162,7 @@ class ApiService {
     final encodedSearch = Uri.encodeComponent(
       _normalizeTermImageSearchString(searchString),
     );
-    return await _dio.get<String>(
+    return await get<String>(
       '/bing/search/$langId/$encodedText/$encodedSearch',
     );
   }
@@ -296,7 +176,7 @@ class ApiService {
     final encodedSearch = Uri.encodeComponent(
       _normalizeTermImageSearchString(searchString),
     );
-    return await _dio.get<String>(
+    return await get<String>(
       '/bing/search_page/$langId/$encodedText/$encodedSearch',
     );
   }
@@ -318,7 +198,7 @@ class ApiService {
   }
 
   Future<Response<String>> getRawPath(String path) async {
-    return await _dio.get<String>(path);
+    return await get<String>(path);
   }
 
   Future<Response<String>> getActiveBooks({
@@ -383,7 +263,7 @@ class ApiService {
       'search[regex]': 'false',
     };
 
-    final response = await _dio.post<String>(
+    final response = await post<String>(
       '/book/datatables/active',
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -453,7 +333,7 @@ class ApiService {
       'search[regex]': 'false',
     };
 
-    final response = await _dio.post<String>(
+    final response = await post<String>(
       '/book/datatables/archived',
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -475,7 +355,7 @@ class ApiService {
       queryParameters['full_book'] = 'true';
     }
 
-    return await _dio.get<String>(
+    return await get<String>(
       '/book/table_stats/$bookId',
       queryParameters: queryParameters.isEmpty ? null : queryParameters,
       options: Options(
@@ -511,17 +391,17 @@ class ApiService {
     final path = pageNum != null
         ? '/read/$bookId/page/$pageNum'
         : '/read/$bookId';
-    return await _dio.get<String>(path);
+    return await get<String>(path);
   }
 
   Future<Response<String>> searchTerms(String text, int langId) async {
     final encodedText = Uri.encodeComponent(text);
-    return await _dio.get<String>('/term/search/$encodedText/$langId');
+    return await get<String>('/term/search/$encodedText/$langId');
   }
 
   Future<Response<String>> createTerm(int langId, String term) async {
     final encodedTerm = Uri.encodeComponent(term);
-    return await _dio.post<String>(
+    return await post<String>(
       '/read/termform/$langId/$encodedTerm',
       data: {'text': term},
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -529,14 +409,14 @@ class ApiService {
   }
 
   Future<Response<String>> getLanguageSettings(int langId) async {
-    return await _dio.get<String>('/language/edit/$langId');
+    return await get<String>('/language/edit/$langId');
   }
 
   Future<Response<String>> postLanguageSettings(
     int langId,
     dynamic data,
   ) async {
-    return await _dio.post<String>(
+    return await post<String>(
       '/language/edit/$langId',
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -544,7 +424,7 @@ class ApiService {
   }
 
   Future<Response<String>> getLanguages() async {
-    return await _dio.get<String>('/language/index');
+    return await get<String>('/language/index');
   }
 
   Future<Response<String>> getNewLanguageSettings({
@@ -552,9 +432,9 @@ class ApiService {
   }) async {
     if (templateName != null && templateName.trim().isNotEmpty) {
       final encodedTemplate = Uri.encodeComponent(templateName.trim());
-      return await _dio.get<String>('/language/new/$encodedTemplate');
+      return await get<String>('/language/new/$encodedTemplate');
     }
-    return await _dio.get<String>('/language/new');
+    return await get<String>('/language/new');
   }
 
   Future<Response<String>> postNewLanguageSettings(
@@ -564,7 +444,7 @@ class ApiService {
     final path = (templateName != null && templateName.trim().isNotEmpty)
         ? '/language/new/${Uri.encodeComponent(templateName.trim())}'
         : '/language/new';
-    return await _dio.post<String>(
+    return await post<String>(
       path,
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -573,29 +453,29 @@ class ApiService {
 
   Future<Response<String>> loadPredefinedLanguage(String languageName) async {
     final encodedName = Uri.encodeComponent(languageName.trim());
-    return await _dio.get<String>('/language/load_predefined/$encodedName');
+    return await get<String>('/language/load_predefined/$encodedName');
   }
 
   Future<Response<String>> deleteLanguage(int langId) async {
-    return await _dio.post<String>('/language/delete/$langId');
+    return await post<String>('/language/delete/$langId');
   }
 
   Future<Response<String>> getBookNew({String? importUrl}) async {
     if (importUrl != null && importUrl.trim().isNotEmpty) {
-      return await _dio.get<String>(
+      return await get<String>(
         '/book/new',
         queryParameters: {'importurl': importUrl.trim()},
       );
     }
-    return await _dio.get<String>('/book/new');
+    return await get<String>('/book/new');
   }
 
   Future<Response<String>> createBook(dynamic data) async {
     if (data is FormData) {
-      return await _dio.post<String>('/book/new', data: data);
+      return await post<String>('/book/new', data: data);
     }
 
-    return await _dio.post<String>(
+    return await post<String>(
       '/book/new',
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -603,41 +483,41 @@ class ApiService {
   }
 
   Future<void> invalidateAllBookStatsCache({Duration? timeout}) async {
-    await _dio.get<String>(
+    await get<String>(
       '/refresh_all_stats',
       options: Options(receiveTimeout: timeout, sendTimeout: timeout),
     );
   }
 
   Future<Response<String>> getSettingsPage() async {
-    return await _dio.get<String>('/settings/index');
+    return await get<String>('/settings/index');
   }
 
   Future<Response<String>> setUserSetting(String key, String value) async {
-    return await _dio.post<String>('/settings/set/$key/$value');
+    return await post<String>('/settings/set/$key/$value');
   }
 
   Future<Response<String>> archiveBook(int bookId) async {
-    return await _dio.post<String>('/book/archive/$bookId');
+    return await post<String>('/book/archive/$bookId');
   }
 
   Future<Response<String>> unarchiveBook(int bookId) async {
-    return await _dio.post<String>('/book/unarchive/$bookId');
+    return await post<String>('/book/unarchive/$bookId');
   }
 
   Future<Response<String>> deleteBook(int bookId) async {
-    return await _dio.post<String>('/book/delete/$bookId');
+    return await post<String>('/book/delete/$bookId');
   }
 
   Future<Response<String>> getBookEdit(int bookId) async {
-    return await _dio.get<String>('/book/edit/$bookId');
+    return await get<String>('/book/edit/$bookId');
   }
 
   Future<Response<String>> postBookEdit(int bookId, dynamic data) async {
     if (data is FormData) {
-      return await _dio.post<String>('/book/edit/$bookId', data: data);
+      return await post<String>('/book/edit/$bookId', data: data);
     }
-    return await _dio.post<String>(
+    return await post<String>(
       '/book/edit/$bookId',
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -650,7 +530,7 @@ class ApiService {
     List<double> bookmarks,
   ) async {
     final bookmarksString = bookmarks.map((b) => b.toString()).join(';');
-    return await _dio.post<String>(
+    return await post<String>(
       '/read/save_player_data',
       data: {
         'bookid': bookId,
@@ -729,7 +609,7 @@ class ApiService {
       }
     }
 
-    return await _dio.post<String>(
+    return await post<String>(
       '/term/datatables',
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -737,7 +617,7 @@ class ApiService {
   }
 
   Future<Response<String>> deleteTerm(int termId) async {
-    return await _dio.post<String>('/term/delete/$termId');
+    return await post<String>('/term/delete/$termId');
   }
 
   Future<Response<String>> getTermCounts({
@@ -779,7 +659,7 @@ class ApiService {
       'excluded_parentags': '',
     };
 
-    return await _dio.post<String>(
+    return await post<String>(
       '/term/datatables',
       data: data,
       options: Options(
@@ -791,7 +671,7 @@ class ApiService {
   }
 
   Future<Response<String>> getStatsData() async {
-    return await _dio.get('/stats/data');
+    return await get('/stats/data');
   }
 
   Future<Response<String>> fetchAllTerms({
@@ -832,7 +712,7 @@ class ApiService {
       'excluded_parentags': '',
     };
 
-    return await _dio.post<String>(
+    return await post<String>(
       '/term/datatables',
       data: data,
       options: Options(contentType: Headers.formUrlEncodedContentType),
@@ -841,7 +721,7 @@ class ApiService {
 
   Future<void> triggerAutoBackup() async {
     try {
-      if (enableLogging) {
+      if (LuteHttpClient.enableLogging) {
         debugPrint('AUTO BACKUP: checking settings from $baseUrl');
       }
       final settings = await BackupService.getAllSettings(baseUrl);
@@ -849,27 +729,27 @@ class ApiService {
       final lastBackup = settings['lastbackup'];
       final shouldTrigger = shouldTriggerAutoBackup(settings, DateTime.now());
 
-      if (enableLogging) {
+      if (LuteHttpClient.enableLogging) {
         debugPrint(
           'AUTO BACKUP: backup_auto=$backupAuto, lastbackup=$lastBackup, shouldTrigger=$shouldTrigger',
         );
       }
 
       if (shouldTrigger) {
-        if (enableLogging) {
+        if (LuteHttpClient.enableLogging) {
           debugPrint('AUTO BACKUP: triggering automatic backup request');
         }
-        await _dio.post('/backup/do_backup', data: {'type': 'automatic'});
-        if (enableLogging) {
+        await post('/backup/do_backup', data: {'type': 'automatic'});
+        if (LuteHttpClient.enableLogging) {
           debugPrint('AUTO BACKUP: backup request completed');
         }
       } else {
-        if (enableLogging) {
+        if (LuteHttpClient.enableLogging) {
           debugPrint('AUTO BACKUP: skipped');
         }
       }
     } catch (e) {
-      if (enableLogging) {
+      if (LuteHttpClient.enableLogging) {
         debugPrint('AUTO BACKUP: failed with error: $e');
       }
       // Silently fail on backup errors - don't block app launch

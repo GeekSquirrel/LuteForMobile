@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
+import 'package:lute_for_mobile/core/network/lute_http_client.dart';
 
 class BackupService {
   static Map<String, String> _headers = const {};
@@ -36,17 +37,26 @@ class BackupService {
     'japanese_reading': 'katakana',
   };
 
+  static LuteHttpClient _createClient(String serverUrl, [Duration? timeout]) {
+    final t = timeout ?? defaultTimeout;
+    return LuteHttpClient(
+      baseUrl: serverUrl,
+      customHeaders: _headers,
+      connectTimeout: t,
+      receiveTimeout: t,
+      sendTimeout: t,
+    );
+  }
+
   static Future<List<Map<String, dynamic>>> listBackups(
     String serverUrl,
   ) async {
     try {
-      final response = await http.get(
-        Uri.parse('$serverUrl/backup/index'),
-        headers: _headers,
-      );
+      final client = _createClient(serverUrl);
+      final response = await client.get<String>('/backup/index');
 
       if (response.statusCode == 200) {
-        final html = response.body;
+        final html = response.data ?? '';
         final backups = <Map<String, dynamic>>[];
 
         final tableRegex = RegExp(
@@ -154,13 +164,12 @@ class BackupService {
     Duration timeout = defaultTimeout,
   }) async {
     try {
-      final response = await http
-          .post(
-            Uri.parse('$serverUrl/backup/do_backup'),
-            body: {'type': 'manual'},
-            headers: _headers,
-          )
-          .timeout(timeout);
+      final client = _createClient(serverUrl, timeout);
+      final response = await client.post<String>(
+        '/backup/do_backup',
+        data: {'type': 'manual'},
+        options: Options(contentType: Headers.formUrlEncodedContentType),
+      );
 
       if (response.statusCode == 200) {
         return 'Backup created successfully';
@@ -182,18 +191,19 @@ class BackupService {
     String serverType = 'termux',
   }) async {
     try {
-      final response = await http.get(
-        Uri.parse('$serverUrl/backup/download/$filename'),
-        headers: _headers,
+      final client = _createClient(serverUrl);
+      final response = await client.get<List<int>>(
+        '/backup/download/$filename',
+        options: Options(responseType: ResponseType.bytes),
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && response.data != null) {
         final downloadsDir = Directory('/storage/emulated/0/Download');
         await downloadsDir.create(recursive: true);
         final prefix = serverType == 'termux' ? 'termux' : 'localurl';
         final renamedFilename = '${prefix}_$filename';
         final file = File('${downloadsDir.path}/$renamedFilename');
-        await file.writeAsBytes(response.bodyBytes);
+        await file.writeAsBytes(response.data!);
         return file.path;
       } else {
         throw Exception('Failed to download backup: ${response.statusCode}');
@@ -209,20 +219,19 @@ class BackupService {
     Duration timeout = defaultTimeout,
   }) async {
     try {
-      final response = await http
-          .post(
-            Uri.parse('$serverUrl/backup/do_restore'),
-            body: {'filename': filename},
-            headers: _headers,
-          )
-          .timeout(timeout);
+      final client = _createClient(serverUrl, timeout);
+      final response = await client.post<String>(
+        '/backup/do_restore',
+        data: {'filename': filename},
+        options: Options(contentType: Headers.formUrlEncodedContentType),
+      );
 
       if (response.statusCode == 200) {
         return 'Restore completed successfully';
       } else {
         throw Exception(
           _extractErrorMessage(
-            response.body,
+            response.data ?? '',
             'Failed to restore backup: ${response.statusCode}',
           ),
         );
@@ -245,20 +254,23 @@ class BackupService {
         throw Exception('Backup file must end with .db.gz');
       }
 
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$serverUrl/backup/upload'),
-      );
-      request.headers.addAll(_headers);
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'backup_file',
+      final client = _createClient(serverUrl, timeout);
+      final formData = FormData.fromMap({
+        'backup_file': await MultipartFile.fromFile(
           localFilePath,
           filename: filename,
         ),
+      });
+
+      final response = await client.post<dynamic>(
+        '/backup/upload',
+        data: formData,
+        options: Options(
+          validateStatus: (status) =>
+              status != null && (status < 400 || status == 302 || status == 303),
+        ),
       );
 
-      final response = await request.send().timeout(timeout);
       if (response.statusCode != 200 &&
           response.statusCode != 302 &&
           response.statusCode != 303) {
@@ -279,18 +291,17 @@ class BackupService {
     Duration timeout = defaultTimeout,
   }) async {
     try {
-      final response = await http
-          .post(
-            Uri.parse('$serverUrl/backup/do_delete'),
-            body: {'filename': filename},
-            headers: _headers,
-          )
-          .timeout(timeout);
+      final client = _createClient(serverUrl, timeout);
+      final response = await client.post<String>(
+        '/backup/do_delete',
+        data: {'filename': filename},
+        options: Options(contentType: Headers.formUrlEncodedContentType),
+      );
 
       if (response.statusCode != 200) {
         throw Exception(
           _extractErrorMessage(
-            response.body,
+            response.data ?? '',
             'Failed to delete backup: ${response.statusCode}',
           ),
         );
@@ -307,12 +318,11 @@ class BackupService {
     Duration timeout = defaultTimeout,
   }) async {
     try {
-      final response = await http
-          .get(Uri.parse('$serverUrl/settings/index'), headers: _headers)
-          .timeout(timeout);
+      final client = _createClient(serverUrl, timeout);
+      final response = await client.get<String>('/settings/index');
 
       if (response.statusCode == 200) {
-        final html = response.body;
+        final html = response.data ?? '';
         final regex = RegExp(r'name="backup_dir"[^>]*value="([^"]*)"');
         final match = regex.firstMatch(html);
         if (match != null) {
@@ -333,10 +343,10 @@ class BackupService {
 
   static Future<void> updateBackupDir(String serverUrl, String newPath) async {
     try {
+      final client = _createClient(serverUrl);
       final encodedPath = Uri.encodeComponent(newPath);
-      final response = await http.post(
-        Uri.parse('$serverUrl/settings/set/backup_dir/$encodedPath'),
-        headers: _headers,
+      final response = await client.post<String>(
+        '/settings/set/backup_dir/$encodedPath',
       );
 
       if (response.statusCode == 200) {
@@ -354,12 +364,11 @@ class BackupService {
     Duration timeout = defaultTimeout,
   }) async {
     try {
-      final response = await http
-          .get(Uri.parse('$serverUrl/settings/index'), headers: _headers)
-          .timeout(timeout);
+      final client = _createClient(serverUrl, timeout);
+      final response = await client.get<String>('/settings/index');
 
       if (response.statusCode == 200) {
-        final html = response.body;
+        final html = response.data ?? '';
         final jsonStr = _extractLuteUserSettingsJson(html);
         return Map<String, dynamic>.from(json.decode(jsonStr));
       } else {
@@ -379,19 +388,18 @@ class BackupService {
     Duration timeout = defaultTimeout,
   }) async {
     try {
+      final client = _createClient(serverUrl, timeout);
       final formBody = <String, String>{
         for (final field in _defaultSettingsEnabledCheckboxes) field: 'y',
         ..._defaultSettingsFieldValues,
         'submit': 'Save',
       };
 
-      final response = await http
-          .post(
-            Uri.parse('$serverUrl/settings/index'),
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: formBody,
-          )
-          .timeout(timeout);
+      final response = await client.post<String>(
+        '/settings/index',
+        data: formBody,
+        options: Options(contentType: Headers.formUrlEncodedContentType),
+      );
 
       if (response.statusCode != 200) {
         throw Exception(
@@ -506,37 +514,30 @@ class BackupService {
     try {
       final settings = await getAllSettings(serverUrl, timeout: timeout);
 
-      final formBody = <MapEntry<String, String>>[];
+      final formBody = <String, String>{};
 
       for (final field in _checkboxFields) {
         final value = settings[field];
         if (_isCheckboxTrue(value)) {
-          formBody.add(MapEntry(field, 'y'));
+          formBody[field] = 'y';
         }
       }
 
       for (final field in _textFieldFields) {
         final value = settings[field];
         final strValue = value?.toString() ?? '';
-        formBody.add(MapEntry(field, strValue));
+        formBody[field] = strValue;
       }
 
-      final backupDirIndex = formBody.indexWhere((e) => e.key == 'backup_dir');
-      if (backupDirIndex >= 0) {
-        formBody[backupDirIndex] = MapEntry('backup_dir', newBackupDir);
-      } else {
-        formBody.add(MapEntry('backup_dir', newBackupDir));
-      }
+      formBody['backup_dir'] = newBackupDir;
+      formBody['submit'] = 'Save';
 
-      formBody.add(const MapEntry('submit', 'Save'));
-
-      final response = await http
-          .post(
-            Uri.parse('$serverUrl/settings/index'),
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: formBody,
-          )
-          .timeout(timeout);
+      final client = _createClient(serverUrl, timeout);
+      final response = await client.post<String>(
+        '/settings/index',
+        data: formBody,
+        options: Options(contentType: Headers.formUrlEncodedContentType),
+      );
 
       if (response.statusCode == 200) {
         return;

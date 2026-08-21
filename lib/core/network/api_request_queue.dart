@@ -31,6 +31,7 @@ class ApiRequestQueue {
   bool _isProcessing = false;
   bool _isServerReachable = true;
   String? _serverUrl;
+  Map<String, String> _customHeaders = const {};
 
   bool get isServerReachable => _isServerReachable;
 
@@ -38,7 +39,12 @@ class ApiRequestQueue {
     _isServerReachable = false;
   }
 
-  void initialize(String serverUrl, Dio dio) {
+  void initialize(
+    String serverUrl,
+    Dio dio, [
+    Map<String, String> customHeaders = const {},
+  ]) {
+    _customHeaders = customHeaders;
     if (_serverUrl != null && _serverUrl == serverUrl) {
       return;
     }
@@ -125,7 +131,10 @@ class ApiRequestQueue {
         '_processQueue',
         details: 'server unreachable, probing...',
       );
-      final isNowReachable = await ServerHealthService.isReachable(_serverUrl!);
+      final isNowReachable = await ServerHealthService.isReachable(
+        _serverUrl!,
+        headers: _customHeaders,
+      );
       if (isNowReachable) {
         _isServerReachable = true;
         ServerStatusManager.setReachable(true);

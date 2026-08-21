@@ -7,12 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/term_form.dart';
 import '../models/term_tooltip.dart';
 import '../../settings/providers/settings_provider.dart'
-    show settingsProvider, termFormSettingsProvider;
+    show termFormSettingsProvider;
 import '../../settings/models/ai_settings.dart';
 import '../../settings/providers/ai_settings_provider.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../core/network/content_service.dart';
 import '../../../core/network/dictionary_service.dart';
+import '../../../core/widgets/lute_image.dart';
 import '../providers/sentence_tts_provider.dart';
 import '../../../core/providers/ai_provider.dart';
 import 'parent_search.dart';
@@ -868,7 +869,6 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
   }
 
   Widget _buildImageButton(BuildContext context) {
-    final resolvedImageUrl = _resolveImageUrl(_currentImageUrl);
     return IconButton(
       onPressed: _showImageManagerDialog,
       tooltip: 'Manage image',
@@ -885,16 +885,13 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
               borderRadius: BorderRadius.circular(6),
               color: context.appColorScheme.background.surface,
             ),
-            child: resolvedImageUrl != null
-                ? ClipRRect(
+            child: _currentImageUrl != null && _currentImageUrl!.trim().isNotEmpty
+                ? LuteImage(
+                    imageUrl: _currentImageUrl,
                     borderRadius: BorderRadius.circular(5),
-                    child: Image.network(
-                      resolvedImageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return _buildSmallImagePlaceholder(context);
-                      },
-                    ),
+                    fit: BoxFit.cover,
+                    errorWidget: _buildSmallImagePlaceholder(context),
+                    placeholder: _buildSmallImagePlaceholder(context),
                   )
                 : _buildSmallImagePlaceholder(context),
           ),
@@ -941,17 +938,14 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: _currentImageUrl != null
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: AspectRatio(
-                              aspectRatio: 16 / 9,
-                              child: Image.network(
-                                _resolveImageUrl(_currentImageUrl!)!,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return _buildImagePlaceholder(context);
-                                },
-                              ),
+                        ? AspectRatio(
+                            aspectRatio: 16 / 9,
+                            child: LuteImage(
+                              imageUrl: _currentImageUrl,
+                              borderRadius: BorderRadius.circular(8),
+                              fit: BoxFit.cover,
+                              errorWidget: _buildImagePlaceholder(context),
+                              placeholder: _buildImagePlaceholder(context),
                             ),
                           )
                         : _buildImagePlaceholder(context),
@@ -1040,28 +1034,6 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     );
   }
 
-  String? _resolveImageUrl(String? imageUrl) {
-    if (imageUrl == null || imageUrl.trim().isEmpty) {
-      return null;
-    }
-
-    final trimmed = imageUrl.trim();
-    final uri = Uri.tryParse(trimmed);
-    if (uri != null && uri.hasScheme) {
-      return trimmed;
-    }
-
-    final serverUrl = ref.read(settingsProvider).serverUrl.trim();
-    if (serverUrl.isEmpty) {
-      return trimmed;
-    }
-
-    final normalizedServer = serverUrl.endsWith('/')
-        ? serverUrl.substring(0, serverUrl.length - 1)
-        : serverUrl;
-    final normalizedPath = trimmed.startsWith('/') ? trimmed : '/$trimmed';
-    return '$normalizedServer$normalizedPath';
-  }
 
   Future<void> _pickAndUploadImage() async {
     final result = await FilePicker.pickFiles(
@@ -1272,14 +1244,12 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
                                 ),
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: ClipRRect(
+                              child: LuteImage(
+                                imageUrl: previewUrl,
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  previewUrl,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) =>
-                                      _buildImagePlaceholder(context),
-                                ),
+                                fit: BoxFit.cover,
+                                errorWidget: _buildImagePlaceholder(context),
+                                placeholder: _buildImagePlaceholder(context),
                               ),
                             ),
                           );
