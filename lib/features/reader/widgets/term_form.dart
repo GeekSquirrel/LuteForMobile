@@ -727,7 +727,7 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
       allowMultiple: false,
       withData: false,
     );
-    final path = result?.files.single.path;
+    final path = result?.firstOrNull?.path;
     if (path == null || path.isEmpty) {
       return;
     }

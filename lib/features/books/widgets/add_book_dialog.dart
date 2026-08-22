@@ -127,9 +127,9 @@ class _AddBookDialogState extends ConsumerState<AddBookDialog> {
         type: FileType.custom,
         allowedExtensions: const ['txt', 'epub', 'pdf', 'srt', 'vtt'],
       );
-      if (result == null || result.files.isEmpty) return;
+      if (result == null || result.isEmpty) return;
 
-      final file = result.files.single;
+      final file = result.first;
       if (file.path == null || file.path!.isEmpty) {
         _showError('Could not access selected file path.');
         return;
@@ -163,9 +163,9 @@ class _AddBookDialogState extends ConsumerState<AddBookDialog> {
           'webm',
         ],
       );
-      if (result == null || result.files.isEmpty) return;
+      if (result == null || result.isEmpty) return;
 
-      final file = result.files.single;
+      final file = result.first;
       if (file.path == null || file.path!.isEmpty) {
         _showError('Could not access selected file path.');
         return;

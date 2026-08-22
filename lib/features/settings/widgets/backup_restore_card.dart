@@ -115,7 +115,7 @@ class _BackupRestoreCardState extends ConsumerState<BackupRestoreCard> {
       type: FileType.custom,
       allowedExtensions: const ['gz'],
     );
-    final path = result?.files.single.path;
+    final path = result?.firstOrNull?.path;
     if (path == null) {
       return;
     }

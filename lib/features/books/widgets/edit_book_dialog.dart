@@ -77,9 +77,9 @@ class _EditBookDialogState extends ConsumerState<EditBookDialog> {
           'webm',
         ],
       );
-      if (result == null || result.files.isEmpty) return;
+      if (result == null || result.isEmpty) return;
 
-      final file = result.files.single;
+      final file = result.first;
       if (file.path == null || file.path!.isEmpty) {
         _showError('Could not access selected file path.');
         return;
