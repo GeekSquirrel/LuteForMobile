@@ -558,22 +558,25 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
             leading: AppBarLeading(scaffoldKey: widget.scaffoldKey),
             title: Text(pageData?.title ?? 'Reader'),
             actions: [
-              if (pageData != null && pageData.pageCount > 1)
+              if (pageData != null &&
+                  (pageData.pageCount > 1 || settings.showPageNumbers))
                 Padding(
                   padding: const EdgeInsets.only(right: 16),
                   child: Row(
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.chevron_left),
-                        onPressed: pageData!.currentPage > 1
-                            ? () => _loadPageWithoutMarkingRead(
-                                pageData!.currentPage - 1,
-                              )
-                            : null,
-                        tooltip: 'Previous page',
-                      ),
+                      if (pageData.pageCount > 1)
+                        IconButton(
+                          icon: const Icon(Icons.chevron_left),
+                          onPressed: pageData!.currentPage > 1
+                              ? () => _loadPageWithoutMarkingRead(
+                                  pageData!.currentPage - 1,
+                                )
+                              : null,
+                          tooltip: 'Previous page',
+                        ),
                       if (settings.showPageNumbers)
                         GestureDetector(
+                          onTap: _openFullPageSentenceTranslation,
                           onDoubleTap: () => _showPageNavigationSlider(),
                           onLongPress: () => _showPageNavigationSlider(),
                           child: Padding(
@@ -583,15 +586,16 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                             child: Text(pageData.pageIndicator),
                           ),
                         ),
-                      IconButton(
-                        icon: const Icon(Icons.chevron_right),
-                        onPressed: pageData!.currentPage < pageData.pageCount
-                            ? () => _loadPageWithoutMarkingRead(
-                                pageData!.currentPage + 1,
-                              )
-                            : null,
-                        tooltip: 'Next page',
-                      ),
+                      if (pageData.pageCount > 1)
+                        IconButton(
+                          icon: const Icon(Icons.chevron_right),
+                          onPressed: pageData!.currentPage < pageData.pageCount
+                              ? () => _loadPageWithoutMarkingRead(
+                                  pageData!.currentPage + 1,
+                                )
+                              : null,
+                          tooltip: 'Next page',
+                        ),
                     ],
                   ),
                 ),
@@ -605,22 +609,25 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
       leading: AppBarLeading(scaffoldKey: widget.scaffoldKey),
       title: Text(pageData?.title ?? 'Reader'),
       actions: [
-        if (pageData != null && pageData.pageCount > 1)
+        if (pageData != null &&
+            (pageData.pageCount > 1 || settings.showPageNumbers))
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: pageData!.currentPage > 1
-                      ? () => _loadPageWithoutMarkingRead(
-                          pageData!.currentPage - 1,
-                        )
-                      : null,
-                  tooltip: 'Previous page',
-                ),
+                if (pageData.pageCount > 1)
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left),
+                    onPressed: pageData!.currentPage > 1
+                        ? () => _loadPageWithoutMarkingRead(
+                            pageData!.currentPage - 1,
+                          )
+                        : null,
+                    tooltip: 'Previous page',
+                  ),
                 if (settings.showPageNumbers)
                   GestureDetector(
+                    onTap: _openFullPageSentenceTranslation,
                     onDoubleTap: () => _showPageNavigationSlider(),
                     onLongPress: () => _showPageNavigationSlider(),
                     child: Padding(
@@ -628,15 +635,16 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                       child: Text(pageData.pageIndicator),
                     ),
                   ),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: pageData!.currentPage < pageData.pageCount
-                      ? () => _loadPageWithoutMarkingRead(
-                          pageData!.currentPage + 1,
-                        )
-                      : null,
-                  tooltip: 'Next page',
-                ),
+                if (pageData.pageCount > 1)
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right),
+                    onPressed: pageData!.currentPage < pageData.pageCount
+                        ? () => _loadPageWithoutMarkingRead(
+                            pageData!.currentPage + 1,
+                          )
+                        : null,
+                    tooltip: 'Next page',
+                  ),
               ],
             ),
           ),
@@ -752,12 +760,22 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
-                    icon: const Row(
+                    icon: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.check_circle_outline, size: 20),
-                        SizedBox(width: 4),
-                        Text('All Known'),
+                        Icon(
+                          Icons.check_circle_outline,
+                          size: 20,
+                          color: context.success,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'All Known',
+                          style: TextStyle(
+                            color: context.success,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ],
                     ),
                     onPressed: () => _markPageKnown(),
@@ -1285,15 +1303,9 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
       builder: (context) {
         final repository = ref.read(readerRepositoryProvider);
         final settings = ref.read(termFormSettingsProvider);
-        return AnimatedPadding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOut,
-          child: PopScope(
-            canPop: true,
-            onPopInvoked: (didPop) async {
+        return PopScope(
+          canPop: true,
+          onPopInvoked: (didPop) async {
               if (didPop && settings.autoSave && _shouldAutoSaveOnClose) {
                 final updatedForm = _currentTermForm ?? termForm;
                 ref.read(readerProvider.notifier).saveTerm(updatedForm).then((
@@ -1390,10 +1402,11 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                               }
                               return existingParent;
                             }).toList();
-                            setState(() {
-                              _currentTermForm = latest.copyWith(parents: updatedParents);
-                            });
-                            setModalState(() {});
+                            _currentTermForm = latest.copyWith(parents: updatedParents);
+                            if (mounted) {
+                              setState(() {});
+                              setModalState(() {});
+                            }
                           },
                         );
                       }
@@ -1408,9 +1421,8 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                   );
                 },
             ),
-          ),
-        );
-      },
+          );
+        },
     ).then((_) {
       if (mounted) {
         _triggerWordGlow();
@@ -1438,17 +1450,26 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
       builder: (context) {
         final repository = ref.read(readerRepositoryProvider);
         final settings = ref.read(termFormSettingsProvider);
-        return AnimatedPadding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOut,
-          child: PopScope(
-            canPop: true,
-            onPopInvoked: (didPop) async {
-              if (didPop && settings.autoSave && _shouldAutoSaveOnClose) {
-                final updatedForm = currentForm;
+
+        void notifyParentUpdated(TermForm form) {
+          onParentUpdated?.call(
+            TermParent(
+              id: form.termId,
+              term: form.term,
+              translation: form.translation,
+              status: int.tryParse(form.status),
+              syncStatus: form.syncStatus,
+            ),
+          );
+        }
+
+        return PopScope(
+          canPop: true,
+          onPopInvoked: (didPop) async {
+            if (didPop) {
+              final updatedForm = currentForm;
+              notifyParentUpdated(updatedForm);
+              if (settings.autoSave && _shouldAutoSaveOnClose) {
                 ref.read(readerProvider.notifier).saveTerm(updatedForm).then((
                   success,
                 ) {
@@ -1462,104 +1483,116 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
                   }
                 });
               }
-            },
-            child: StatefulBuilder(
-              builder: (context, setModalState) {
-                return TermFormWidget(
-                  termForm: currentForm,
-                  sentence: sentence,
-                    initialReaderStatus: null,
-                    contentService: repository.contentService,
-                    dictionaryService: DictionaryService(
-                      fetchLanguageSettingsHtml: (langId) => repository
-                          .contentService
-                          .getLanguageSettingsHtml(langId),
-                    ),
-                    onUpdate: (updatedForm) {
-                      currentForm = updatedForm;
-                      setModalState(() {});
-                    },
-                    onSave: (updatedForm) async {
-                      currentForm = updatedForm;
-                      final success = await ref
-                          .read(readerProvider.notifier)
-                          .saveTerm(updatedForm);
-                      if (success && mounted) {
-                        onParentUpdated?.call(
-                          TermParent(
-                            id: updatedForm.termId,
-                            term: updatedForm.term,
-                            translation: updatedForm.translation,
-                            status: int.tryParse(updatedForm.status),
-                            syncStatus: updatedForm.syncStatus,
-                          ),
-                        );
-                        Navigator.of(context).pop();
-                      } else {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Failed to save term'),
-                            ),
-                          );
-                        }
-                      }
-                    },
-                    onCancel: () {
-                      _shouldAutoSaveOnClose = false;
-                      Navigator.of(context).pop();
-                    },
-                    onDictionaryToggle: (isOpen) {
-                      isDictionaryOpen = isOpen;
-                      setModalState(() {});
-                    },
-                    onParentDoubleTap: (parent) async {
-                      TermForm? parentTermForm;
-                      if (parent.id != null) {
-                        parentTermForm = await ref
-                            .read(readerProvider.notifier)
-                            .fetchTermFormById(parent.id!);
-                      } else {
-                        parentTermForm = await ref
-                            .read(readerProvider.notifier)
-                            .fetchTermForm(currentForm.languageId, parent.term);
-                      }
-                      if (parentTermForm != null && mounted) {
-                        _showParentTermForm(
-                          parentTermForm,
-                          sentence: sentence,
-                          onParentUpdated: (updatedParent) {
-                            final updatedParents = currentForm.parents.map((existingParent) {
-                              final matchById = updatedParent.id != null &&
-                                  existingParent.id != null &&
-                                  existingParent.id == updatedParent.id;
-                              final matchByTerm = existingParent.term.trim().toLowerCase() ==
-                                  updatedParent.term.trim().toLowerCase();
-                              if (matchById || matchByTerm) {
-                                return updatedParent;
-                              }
-                              return existingParent;
-                            }).toList();
-                            currentForm = currentForm.copyWith(parents: updatedParents);
-                            setModalState(() {});
-                          },
-                        );
-                      }
-                    },
-                    onStatus99Changed: (langId) async {
-                      if (ref.read(settingsProvider).showStatsBar) {
-                        await ref
-                            .read(termsProvider.notifier)
-                            .loadStats(langId);
-                      }
-                    },
-                  );
+            }
+          },
+          child: StatefulBuilder(
+            builder: (context, setModalState) {
+              return TermFormWidget(
+                termForm: currentForm,
+                sentence: sentence,
+                initialReaderStatus: null,
+                contentService: repository.contentService,
+                dictionaryService: DictionaryService(
+                  fetchLanguageSettingsHtml: (langId) => repository
+                      .contentService
+                      .getLanguageSettingsHtml(langId),
+                ),
+                onUpdate: (updatedForm) {
+                  currentForm = updatedForm;
+                  notifyParentUpdated(updatedForm);
+                  setModalState(() {});
                 },
-            ),
+                onSave: (updatedForm) async {
+                  currentForm = updatedForm;
+                  notifyParentUpdated(updatedForm);
+                  final success = await ref
+                      .read(readerProvider.notifier)
+                      .saveTerm(updatedForm);
+                  if (success && mounted) {
+                    Navigator.of(context).pop();
+                  } else {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Failed to save term'),
+                        ),
+                      );
+                    }
+                  }
+                },
+                onCancel: () {
+                  _shouldAutoSaveOnClose = false;
+                  Navigator.of(context).pop();
+                },
+                onDictionaryToggle: (isOpen) {
+                  isDictionaryOpen = isOpen;
+                  setModalState(() {});
+                },
+                onParentDoubleTap: (parent) async {
+                  TermForm? parentTermForm;
+                  if (parent.id != null) {
+                    parentTermForm = await ref
+                        .read(readerProvider.notifier)
+                        .fetchTermFormById(parent.id!);
+                  } else {
+                    parentTermForm = await ref
+                        .read(readerProvider.notifier)
+                        .fetchTermForm(currentForm.languageId, parent.term);
+                  }
+                  if (parentTermForm != null && mounted) {
+                    _showParentTermForm(
+                      parentTermForm,
+                      sentence: sentence,
+                      onParentUpdated: (updatedParent) {
+                        final updatedParents = currentForm.parents.map((existingParent) {
+                          final matchById = updatedParent.id != null &&
+                              existingParent.id != null &&
+                              existingParent.id == updatedParent.id;
+                          final matchByTerm = existingParent.term.trim().toLowerCase() ==
+                              updatedParent.term.trim().toLowerCase();
+                          if (matchById || matchByTerm) {
+                            return updatedParent;
+                          }
+                          return existingParent;
+                        }).toList();
+                        currentForm = currentForm.copyWith(parents: updatedParents);
+                        notifyParentUpdated(currentForm);
+                        setModalState(() {});
+                      },
+                    );
+                  }
+                },
+                onStatus99Changed: (langId) async {
+                  if (ref.read(settingsProvider).showStatsBar) {
+                    await ref
+                        .read(termsProvider.notifier)
+                        .loadStats(langId);
+                  }
+                },
+              );
+            },
           ),
         );
       },
     );
+  }
+
+  void _openFullPageSentenceTranslation() {
+    final pageData = ref.read(readerProvider).pageData;
+    if (pageData == null) return;
+
+    final langId = _findLangId(pageData);
+    if (langId == null) return;
+
+    final fullText = pageData.paragraphs
+        .map((p) => p.fullText)
+        .where((text) => text.trim().isNotEmpty)
+        .join('\n')
+        .trim();
+
+    if (fullText.isEmpty) return;
+
+    _showSentenceTranslation(fullText, langId);
   }
 
   void _showSentenceTranslation(String sentence, int languageId) {
@@ -1574,23 +1607,16 @@ class ReaderScreenState extends ConsumerState<ReaderScreen>
         vsync: Navigator.of(context),
       ),
       builder: (context) {
-        return AnimatedPadding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
+        return SentenceTranslationWidget(
+          sentence: sentence,
+          translation: null,
+          translationProvider: 'local',
+          languageId: languageId,
+          dictionaryService: DictionaryService(
+            fetchLanguageSettingsHtml: (langId) =>
+                repository.contentService.getLanguageSettingsHtml(langId),
           ),
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOut,
-          child: SentenceTranslationWidget(
-            sentence: sentence,
-            translation: null,
-            translationProvider: 'local',
-            languageId: languageId,
-            dictionaryService: DictionaryService(
-              fetchLanguageSettingsHtml: (langId) =>
-                  repository.contentService.getLanguageSettingsHtml(langId),
-            ),
-            onClose: () => Navigator.of(context).pop(),
-          ),
+          onClose: () => Navigator.of(context).pop(),
         );
       },
     );
