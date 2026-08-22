@@ -47,14 +47,14 @@ dependencies:
   cached_network_image: ^3.3.1
   package_info_plus: ^10.1.0
   confetti: ^0.8.0
-  dynamic_color: ^1.7.0
+  dynamic_color: ^2.1.0
 
   # Reader-Specific Packages
   flutter_tts: ^4.2.5
   audioplayers: ^6.5.1
 
   # AI Integration
-  openai_dart: ^5.0.0
+  openai_dart: ^8.0.0
   google_generative_ai: ^0.4.0
 
   # Charts/Statistics
@@ -63,15 +63,15 @@ dependencies:
   # Storage & Database
   hive_ce: ^2.19.3
   hive_ce_flutter: ^2.3.4
-  permission_handler: ^12.0.1
+  permission_handler: 12.0.1
 
   # Network & Utilities
   url_launcher: ^6.3.1
   flutter_inappwebview: ^6.1.5
   html: ^0.15.5
-  app_settings: ^7.0.0
+  app_settings: ^9.0.0
   http: ^1.6.0
-  file_picker: ^12.0.0-beta.3
+  file_picker: ^12.0.0
 
 dev_dependencies:
   flutter_test:
