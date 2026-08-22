@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dynamic_color/dynamic_color.dart';
+import 'package:dynamic_color/dynamic_color.dart' hide ColorScheme;
 import 'package:lute_for_mobile/core/logger/api_logger.dart';
 import 'package:lute_for_mobile/features/reader/widgets/reader_screen.dart';
 import 'package:lute_for_mobile/features/reader/widgets/reader_drawer_settings.dart';
@@ -157,7 +157,7 @@ class App extends ConsumerWidget {
     }
 
     return DynamicColorBuilder(
-      builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+      builder: (lightDynamic, darkDynamic) {
         final isDark = themeSettings.themeType == ThemeType.dark;
         final dynamicColor =
             isDark ? darkDynamic?.primary : lightDynamic?.primary;

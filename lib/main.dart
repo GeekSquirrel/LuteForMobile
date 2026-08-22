@@ -42,57 +42,114 @@ void main() async {
   // Pre-warm the on-device TTS engine on the main thread to prevent a native
   // crash on OnePlus/Oplus devices when TextToSpeech is created during speak().
   if (!kIsWeb) {
-    unawaited(OnDeviceTTSService.warmUp());
+    Future.delayed(const Duration(seconds: 3), () {
+      OnDeviceTTSService.warmUp();
+    });
   }
 
-  final prefs = await SharedPreferences.getInstance();
-  final localUrl = prefs.getString('local_url') ?? '';
-  final useTermux = prefs.getBool('use_termux') ?? false;
-  final serverUrl = useTermux ? Settings.termuxUrl : localUrl;
-  final customHeaders = _loadCustomHeaders(prefs);
-  BackupService.setHeaders(customHeaders);
+  try {
+    SharedPreferences? prefs;
+    try {
+      prefs = await SharedPreferences.getInstance().timeout(
+        const Duration(seconds: 3),
+      );
+    } catch (e) {
+      debugPrint('main.dart: SharedPreferences init fallback: $e');
+    }
 
-  if (kIsWeb) {
-    await Hive.initFlutter();
-  } else {
-    final cacheDir = await getApplicationCacheDirectory();
-    await Hive.initFlutter(cacheDir.path);
-  }
-  Hive.registerAdapters();
+    final localUrl = prefs?.getString('local_url') ?? '';
+    final useTermux = prefs?.getBool('use_termux') ?? false;
+    final serverUrl = useTermux ? Settings.termuxUrl : localUrl;
+    final customHeaders = prefs != null ? _loadCustomHeaders(prefs) : <String, String>{};
+    BackupService.setHeaders(customHeaders);
 
-  ServerStatusManager.setConnecting();
+    if (kIsWeb) {
+      await Hive.initFlutter();
+    } else {
+      final cacheDir = await getApplicationCacheDirectory();
+      await Hive.initFlutter(cacheDir.path);
+    }
+    Hive.registerAdapters();
 
-  Future<bool>? androidHealthCheck;
-  if (useTermux && serverUrl == Settings.termuxUrl) {
-    androidHealthCheck = TermuxService.isServerRunning(serverUrl);
-  }
+    ServerStatusManager.setConnecting();
 
-  if (androidHealthCheck != null) {
-    final isRunning = await androidHealthCheck;
-    print('main.dart: Android server check: $isRunning');
-    ServerStatusManager.setReachable(isRunning);
-  } else if (serverUrl.isNotEmpty) {
-    final isServerReachable = await ServerHealthService.isReachable(
-      serverUrl,
-      headers: customHeaders,
+    unawaited(_performInitialHealthChecks(serverUrl, useTermux, customHeaders));
+
+    runApp(
+      ProviderScope(
+        overrides: [initialServerUrlProvider.overrideWithValue(serverUrl)],
+        child: const App(),
+      ),
     );
-    print('main.dart: Server health check result: $isServerReachable');
-    ServerStatusManager.setReachable(isServerReachable);
-  } else {
-    ServerStatusManager.setReachable(false);
+  } catch (e, stack) {
+    debugPrint('main.dart initialization error: $e\n$stack');
+    runApp(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Text(
+                'Initialization Error: $e',
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
+}
 
-  ServerStatusManager.setInitialCheckComplete(true);
+Future<void> _performInitialHealthChecks(
+  String serverUrl,
+  bool useTermux,
+  Map<String, String> customHeaders,
+) async {
+  try {
+    Future<bool>? androidHealthCheck;
+    if (useTermux && serverUrl == Settings.termuxUrl) {
+      androidHealthCheck = TermuxService.isServerRunning(serverUrl);
+    }
 
-  if (serverUrl.isNotEmpty) {
-    final apiService = ApiService(baseUrl: serverUrl, headers: customHeaders);
-    apiService.triggerAutoBackup();
+    if (androidHealthCheck != null) {
+      try {
+        final isRunning = await androidHealthCheck.timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => false,
+        );
+        ServerStatusManager.setReachable(isRunning);
+      } catch (_) {
+        ServerStatusManager.setReachable(false);
+      }
+    } else if (serverUrl.isNotEmpty) {
+      try {
+        final isServerReachable = await ServerHealthService.isReachable(
+          serverUrl,
+          headers: customHeaders,
+        ).timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => false,
+        );
+        ServerStatusManager.setReachable(isServerReachable);
+      } catch (_) {
+        ServerStatusManager.setReachable(false);
+      }
+    } else {
+      ServerStatusManager.setReachable(false);
+    }
+  } catch (e) {
+    debugPrint('Health check error: $e');
+  } finally {
+    ServerStatusManager.setInitialCheckComplete(true);
+    if (serverUrl.isNotEmpty) {
+      try {
+        final apiService = ApiService(
+          baseUrl: serverUrl,
+          headers: customHeaders,
+        );
+        apiService.triggerAutoBackup();
+      } catch (_) {}
+    }
   }
-
-  runApp(
-    ProviderScope(
-      overrides: [initialServerUrlProvider.overrideWithValue(serverUrl)],
-      child: const App(),
-    ),
-  );
 }

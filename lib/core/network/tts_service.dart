@@ -107,7 +107,10 @@ class OnDeviceTTSService implements TTSService {
     if (_isWarmedUp) return;
     _ensureInitialized();
     try {
-      await _sharedFlutterTts.getLanguages;
+      await _sharedFlutterTts.getLanguages.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => null,
+      );
       _isWarmedUp = true;
       debugPrint('OnDeviceTTS warmed up successfully');
     } catch (e) {
