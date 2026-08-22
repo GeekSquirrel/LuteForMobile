@@ -237,6 +237,7 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
         : state.hasMoreActive;
 
     return ListView.builder(
+      cacheExtent: 500,
       controller: _scrollController,
       padding: const EdgeInsets.only(bottom: 16),
       itemCount: books.length + (hasMore ? 1 : 0),

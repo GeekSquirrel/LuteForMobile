@@ -10,6 +10,7 @@ import 'package:lute_for_mobile/core/network/api_service.dart';
 import 'package:lute_for_mobile/core/network/tts_service.dart';
 import 'package:lute_for_mobile/core/providers/initial_providers.dart';
 import 'package:lute_for_mobile/core/services/backup_service.dart';
+import 'package:lute_for_mobile/core/services/display_mode_service.dart';
 import 'package:lute_for_mobile/core/services/server_health_service.dart';
 import 'package:lute_for_mobile/core/services/termux_service.dart';
 import 'package:lute_for_mobile/features/settings/models/settings.dart';
@@ -38,6 +39,8 @@ Map<String, String> _loadCustomHeaders(SharedPreferences prefs) {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 100 * 1024 * 1024;
+  PaintingBinding.instance.imageCache.maximumSize = 300;
 
   // Pre-warm the on-device TTS engine on the main thread to prevent a native
   // crash on OnePlus/Oplus devices when TextToSpeech is created during speak().
@@ -62,6 +65,9 @@ void main() async {
     final serverUrl = useTermux ? Settings.termuxUrl : localUrl;
     final customHeaders = prefs != null ? _loadCustomHeaders(prefs) : <String, String>{};
     BackupService.setHeaders(customHeaders);
+
+    final enableHighRefreshRate = prefs?.getBool('enable_high_refresh_rate') ?? true;
+    unawaited(DisplayModeService.applyDisplayMode(enableHighRefreshRate: enableHighRefreshRate));
 
     if (kIsWeb) {
       await Hive.initFlutter();

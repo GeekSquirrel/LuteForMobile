@@ -57,6 +57,8 @@ class TextDisplay extends StatefulWidget {
     this.textDirection,
   });
 
+  static final RegExp _statusRegExp = RegExp(r'status(\d+)');
+
   static Widget buildInteractiveWord(
     BuildContext context,
     TextItem item, {
@@ -79,13 +81,14 @@ class TextDisplay extends StatefulWidget {
     int? highlightedParagraphId,
     int? highlightedOrder,
     bool isSelected = false,
+    Color? defaultTextColor,
   }) {
     Color? textColor;
     Color? backgroundColor;
 
     String? status;
     if (item.wordId != null) {
-      final statusMatch = RegExp(r'status(\d+)').firstMatch(item.statusClass);
+      final statusMatch = _statusRegExp.firstMatch(item.statusClass);
       status = statusMatch?.group(1) ?? '0';
 
       textColor = context.getStatusTextColor(status);
@@ -124,10 +127,12 @@ class TextDisplay extends StatefulWidget {
     final isStatus0 = item.wordId != null && status == '0';
     final effectiveFontWeight = isStatus0 ? FontWeight.bold : fontWeight;
 
+    final effectiveTextColor = isSelected
+        ? selectionTextColor
+        : (textColor ?? defaultTextColor ?? Theme.of(context).textTheme.bodyLarge?.color);
+
     final textStyle = TextStyle(
-      color: isSelected
-          ? selectionTextColor
-          : textColor ?? Theme.of(context).textTheme.bodyLarge?.color,
+      color: effectiveTextColor,
       fontWeight: effectiveFontWeight,
       fontSize: textSize,
       height: lineSpacing,
@@ -135,54 +140,59 @@ class TextDisplay extends StatefulWidget {
       fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
     );
 
-    final textWidget = Container(
-      margin: backgroundColor != null || isSelected
-          ? const EdgeInsets.symmetric(vertical: 2.0, horizontal: 0.5)
-          : null,
-      padding: backgroundColor != null || isSelected
-          ? const EdgeInsets.symmetric(horizontal: 3.0, vertical: 0.5)
-          : null,
-      decoration: BoxDecoration(
-        color: isSelected ? selectionColor : backgroundColor,
-        borderRadius: BorderRadius.circular(4),
-        border: isSelected
-            ? Border.all(color: selectionTextColor.withValues(alpha: 0.35))
-            : null,
-        boxShadow: [
-          ...?selectionGlow == null ? null : [selectionGlow],
-          ...?glowEffect == null ? null : [glowEffect],
-        ],
-      ),
-      child: Text(item.text, style: textStyle),
-    );
+    final hasDecoration = backgroundColor != null || isSelected || isHighlighted;
+
+    final Widget textWidget;
+    if (hasDecoration) {
+      final List<BoxShadow>? shadows = (selectionGlow != null || glowEffect != null)
+          ? [
+              if (selectionGlow != null) selectionGlow,
+              if (glowEffect != null) glowEffect,
+            ]
+          : null;
+
+      textWidget = Container(
+        margin: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 0.5),
+        padding: const EdgeInsets.symmetric(horizontal: 3.0, vertical: 0.5),
+        decoration: BoxDecoration(
+          color: isSelected ? selectionColor : backgroundColor,
+          borderRadius: BorderRadius.circular(4),
+          border: isSelected
+              ? Border.all(color: selectionTextColor.withValues(alpha: 0.35))
+              : null,
+          boxShadow: shadows,
+        ),
+        child: Text(item.text, style: textStyle),
+      );
+    } else {
+      textWidget = Text(item.text, style: textStyle);
+    }
 
     if (item.wordId != null) {
-      return RepaintBoundary(
+      return KeyedSubtree(
         key: widgetKey,
-        child: Builder(
-          builder: (context) => GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => onTap?.call(item, context),
-            onLongPress: onLongPressStart == null && onLongPress != null
-                ? () => onLongPress(item)
-                : null,
-            onLongPressStart: onLongPressStart != null
-                ? (_) => onLongPressStart(item)
-                : null,
-            onLongPressMoveUpdate: onLongPressMoveUpdate != null
-                ? (details) =>
-                      onLongPressMoveUpdate(item, details.globalPosition)
-                : null,
-            onLongPressEnd: onLongPressEnd != null
-                ? (_) => onLongPressEnd(item)
-                : null,
-            child: textWidget,
-          ),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => onTap?.call(item, context),
+          onLongPress: onLongPressStart == null && onLongPress != null
+              ? () => onLongPress(item)
+              : null,
+          onLongPressStart: onLongPressStart != null
+              ? (_) => onLongPressStart(item)
+              : null,
+          onLongPressMoveUpdate: onLongPressMoveUpdate != null
+              ? (details) =>
+                    onLongPressMoveUpdate(item, details.globalPosition)
+              : null,
+          onLongPressEnd: onLongPressEnd != null
+              ? (_) => onLongPressEnd(item)
+              : null,
+          child: textWidget,
         ),
       );
     }
 
-    return RepaintBoundary(key: widgetKey, child: textWidget);
+    return KeyedSubtree(key: widgetKey, child: textWidget);
   }
 
   @override
@@ -361,6 +371,7 @@ class _TextDisplayState extends State<TextDisplay> {
     );
     final fallbackDirection =
         widget.textDirection ?? Directionality.of(context);
+    final defaultTextColor = Theme.of(context).textTheme.bodyLarge?.color;
     return RepaintBoundary(
       child: SingleChildScrollView(
         controller: widget.scrollController,
@@ -374,7 +385,12 @@ class _TextDisplayState extends State<TextDisplay> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ...widget.paragraphs.map((paragraph) {
-              return _buildParagraph(context, paragraph, fallbackDirection);
+              return _buildParagraph(
+                context,
+                paragraph,
+                fallbackDirection,
+                defaultTextColor,
+              );
             }),
             if (widget.bottomControlWidget != null) ...[
               const SizedBox(height: 16),
@@ -390,6 +406,7 @@ class _TextDisplayState extends State<TextDisplay> {
     BuildContext context,
     Paragraph paragraph,
     TextDirection fallbackDirection,
+    Color? defaultTextColor,
   ) {
     final textDirection =
         widget.textDirection ??
@@ -398,29 +415,39 @@ class _TextDisplayState extends State<TextDisplay> {
           fallback: fallbackDirection,
         );
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Directionality(
-        textDirection: textDirection,
-        child: Align(
-          alignment: textDirection == TextDirection.rtl
-              ? Alignment.centerRight
-              : Alignment.centerLeft,
-          child: Wrap(
-            spacing: 0,
-            runSpacing: 2,
-            textDirection: textDirection,
-            children: paragraph.textItems.asMap().entries.map((entry) {
-              final item = entry.value;
-              return _buildInteractiveWord(context, item);
-            }).toList(),
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Directionality(
+          textDirection: textDirection,
+          child: Align(
+            alignment: textDirection == TextDirection.rtl
+                ? Alignment.centerRight
+                : Alignment.centerLeft,
+            child: Wrap(
+              spacing: 0,
+              runSpacing: 2,
+              textDirection: textDirection,
+              children: paragraph.textItems.asMap().entries.map((entry) {
+                final item = entry.value;
+                return _buildInteractiveWord(
+                  context,
+                  item,
+                  defaultTextColor: defaultTextColor,
+                );
+              }).toList(),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildInteractiveWord(BuildContext context, TextItem item) {
+  Widget _buildInteractiveWord(
+    BuildContext context,
+    TextItem item, {
+    Color? defaultTextColor,
+  }) {
     return TextDisplay.buildInteractiveWord(
       context,
       item,
@@ -442,6 +469,7 @@ class _TextDisplayState extends State<TextDisplay> {
       highlightedParagraphId: widget.highlightedParagraphId,
       highlightedOrder: widget.highlightedOrder,
       isSelected: _isSelected(item),
+      defaultTextColor: defaultTextColor,
     );
   }
 }

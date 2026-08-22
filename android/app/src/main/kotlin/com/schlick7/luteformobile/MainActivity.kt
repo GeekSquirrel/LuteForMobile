@@ -1,7 +1,9 @@
 package com.schlick7.luteformobile
 
 import android.content.SharedPreferences
+import android.os.Build
 import android.os.Bundle
+import android.view.Surface
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +20,7 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         android.util.Log.d("MainActivity", ">>> onCreate() <<<")
+        setHighRefreshRate()
 
         if (!hasAutoLaunched) {
             hasAutoLaunched = true
@@ -30,6 +33,39 @@ class MainActivity : FlutterActivity() {
     override fun onResume() {
         super.onResume()
         android.util.Log.d("MainActivity", ">>> onResume() <<<")
+        setHighRefreshRate()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        setHighRefreshRate()
+    }
+
+    private fun setHighRefreshRate() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    display
+                } else {
+                    @Suppress("DEPRECATION")
+                    windowManager.defaultDisplay
+                }
+
+                if (display != null) {
+                    val supportedModes = display.supportedModes
+                    val maxMode = supportedModes.maxByOrNull { it.refreshRate }
+                    if (maxMode != null) {
+                        val layoutParams = window.attributes
+                        if (layoutParams.preferredDisplayModeId != maxMode.modeId) {
+                            layoutParams.preferredDisplayModeId = maxMode.modeId
+                            window.attributes = layoutParams
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to set high refresh rate: ${e.message}")
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

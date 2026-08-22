@@ -81,6 +81,7 @@ class TermListDisplay extends StatelessWidget {
     }
 
     return ListView.builder(
+      cacheExtent: 500,
       padding: EdgeInsets.only(
         left: 12,
         right: 12,

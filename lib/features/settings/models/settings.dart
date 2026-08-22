@@ -44,6 +44,7 @@ class Settings {
   final int maxConcurrentTooltipFetches;
   final bool autoRefreshFullStats;
   final bool experimentalBookDetailsFullStatsEndpoint;
+  final bool enableHighRefreshRate;
 
   static const String termuxUrl = 'http://127.0.0.1:5001';
 
@@ -98,6 +99,7 @@ class Settings {
     this.maxConcurrentTooltipFetches = 4,
     this.autoRefreshFullStats = false,
     this.experimentalBookDetailsFullStatsEndpoint = false,
+    this.enableHighRefreshRate = true,
   });
 
   Settings copyWith({
@@ -142,6 +144,7 @@ class Settings {
     int? maxConcurrentTooltipFetches,
     bool? autoRefreshFullStats,
     bool? experimentalBookDetailsFullStatsEndpoint,
+    bool? enableHighRefreshRate,
   }) {
     return Settings(
       localUrl: localUrl ?? this.localUrl,
@@ -205,6 +208,8 @@ class Settings {
       experimentalBookDetailsFullStatsEndpoint:
           experimentalBookDetailsFullStatsEndpoint ??
           this.experimentalBookDetailsFullStatsEndpoint,
+      enableHighRefreshRate:
+          enableHighRefreshRate ?? this.enableHighRefreshRate,
     );
   }
 
@@ -249,6 +254,7 @@ class Settings {
       maxConcurrentTooltipFetches: 4,
       autoRefreshFullStats: false,
       experimentalBookDetailsFullStatsEndpoint: false,
+      enableHighRefreshRate: true,
     );
   }
 
@@ -296,7 +302,8 @@ class Settings {
         other.maxConcurrentTooltipFetches == maxConcurrentTooltipFetches &&
         other.autoRefreshFullStats == autoRefreshFullStats &&
         other.experimentalBookDetailsFullStatsEndpoint ==
-            experimentalBookDetailsFullStatsEndpoint;
+            experimentalBookDetailsFullStatsEndpoint &&
+        other.enableHighRefreshRate == enableHighRefreshRate;
   }
 
   @override
@@ -341,6 +348,7 @@ class Settings {
     maxConcurrentTooltipFetches,
     autoRefreshFullStats,
     experimentalBookDetailsFullStatsEndpoint,
+    enableHighRefreshRate,
   ]);
 
   bool isValidServerUrl(String url) {

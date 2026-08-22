@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/cache/providers/cache_manager_provider.dart';
 import '../../../core/services/backup_service.dart';
+import '../../../core/services/display_mode_service.dart';
 import '../../../core/services/server_health_service.dart';
 import '../../../core/services/termux_service.dart';
 import '../../../features/reader/providers/reader_provider.dart';
@@ -70,6 +71,7 @@ class SettingsNotifier extends Notifier<Settings> {
   static const String _keyAutoRefreshFullStats = 'auto_refresh_full_stats';
   static const String _keyExperimentalBookDetailsFullStatsEndpoint =
       'experimental_book_details_full_stats_endpoint';
+  static const String _keyEnableHighRefreshRate = 'enable_high_refresh_rate';
 
   @override
   Settings build() {
@@ -136,6 +138,8 @@ class SettingsNotifier extends Notifier<Settings> {
         prefs.getBool(_keyAutoRefreshFullStats) ?? false;
     final experimentalBookDetailsFullStatsEndpoint =
         prefs.getBool(_keyExperimentalBookDetailsFullStatsEndpoint) ?? false;
+    final enableHighRefreshRate =
+        prefs.getBool(_keyEnableHighRefreshRate) ?? true;
 
     final currentBookId = prefs.getInt(_keyCurrentBookId);
     final currentBookLangId = prefs.getInt(_keyCurrentBookLangId);
@@ -179,6 +183,11 @@ class SettingsNotifier extends Notifier<Settings> {
       autoRefreshFullStats: autoRefreshFullStats,
       experimentalBookDetailsFullStatsEndpoint:
           experimentalBookDetailsFullStatsEndpoint,
+      enableHighRefreshRate: enableHighRefreshRate,
+    );
+
+    DisplayModeService.applyDisplayMode(
+      enableHighRefreshRate: enableHighRefreshRate,
     );
   }
 
@@ -512,6 +521,13 @@ class SettingsNotifier extends Notifier<Settings> {
     await prefs.setBool(_keyAlwaysRefreshBookDetails, value);
   }
 
+  Future<void> updateEnableHighRefreshRate(bool enabled) async {
+    state = state.copyWith(enableHighRefreshRate: enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyEnableHighRefreshRate, enabled);
+    await DisplayModeService.applyDisplayMode(enableHighRefreshRate: enabled);
+  }
+
   bool _isValidUrl(String url) {
     try {
       final uri = Uri.parse(url);
@@ -551,8 +567,10 @@ class SettingsNotifier extends Notifier<Settings> {
     await prefs.remove(_keyAlwaysRefreshBookDetails);
     await prefs.remove(_keyAutoRefreshFullStats);
     await prefs.remove(_keyExperimentalBookDetailsFullStatsEndpoint);
+    await prefs.remove(_keyEnableHighRefreshRate);
 
     state = Settings.defaultSettings();
+    await DisplayModeService.applyDisplayMode(enableHighRefreshRate: true);
   }
 }
 
