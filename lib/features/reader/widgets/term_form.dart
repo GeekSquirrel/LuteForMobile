@@ -62,6 +62,8 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
   late TextEditingController _translationController;
   late TextEditingController _romanizationController;
   late TextEditingController _imageSearchController;
+  late final FocusNode _translationFocusNode;
+  late final FocusNode _romanizationFocusNode;
   late String _selectedStatus;
   late DictionaryService _dictionaryService;
   String? _currentImageUrl;
@@ -85,6 +87,10 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
   void initState() {
     super.initState();
     _dictionaryService = widget.dictionaryService;
+    _translationFocusNode = FocusNode();
+    _romanizationFocusNode = FocusNode();
+    _translationFocusNode.addListener(_onFocusChange);
+    _romanizationFocusNode.addListener(_onFocusChange);
     _translationController = TextEditingController(
       text: widget.termForm.translation ?? '',
     );
@@ -103,6 +109,25 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeAutoFetchAITranslation();
     });
+  }
+
+  void _onFocusChange() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _translationFocusNode.removeListener(_onFocusChange);
+    _romanizationFocusNode.removeListener(_onFocusChange);
+    _translationFocusNode.dispose();
+    _romanizationFocusNode.dispose();
+    _translationController.dispose();
+    _romanizationController.dispose();
+    _imageSearchController.dispose();
+    _debounceTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadPopupHeight() async {
@@ -261,15 +286,6 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
         _maybeAutoFetchAITranslation();
       });
     }
-  }
-
-  @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    _translationController.dispose();
-    _romanizationController.dispose();
-    _imageSearchController.dispose();
-    super.dispose();
   }
 
   void _updateForm() {
@@ -865,12 +881,12 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     final screenHeight = MediaQuery.of(context).size.height;
     final maxModalHeight = screenHeight * 0.94;
     final viewInsets = MediaQuery.of(context).viewInsets;
-    final maxAvailableHeight =
-        (screenHeight - viewInsets.bottom - 16).clamp(300.0, maxModalHeight);
+    final keyboardHeight = viewInsets.bottom;
+    final isKeyboardOpen = keyboardHeight > 0;
 
     if (!_hasLoaded) {
       return Container(
-        constraints: BoxConstraints(maxHeight: maxAvailableHeight),
+        constraints: BoxConstraints(maxHeight: maxModalHeight),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: context.appColorScheme.background.background,
@@ -882,63 +898,220 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
       );
     }
 
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: maxAvailableHeight,
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-      decoration: BoxDecoration(
-        color: context.appColorScheme.background.background,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(20),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: DictionaryBrowserView(
-              key: _browserViewKey,
-              dictionaries: _dictionaries,
-              initialPage: _currentPage,
-              searchText: widget.termForm.term,
-              sentence: widget.sentence,
-              languageId: widget.termForm.languageId,
-              isSentence: false,
-              dictionaryService: widget.dictionaryService,
-              onPageChanged: (index) {
-                _currentPage = index;
-                if (index < _dictionaries.length &&
-                    _dictionaries[index].isImages &&
-                    _imageSearchResults.isEmpty &&
-                    !_isLoadingImages) {
-                  _searchImages();
-                }
-              },
-              onOpenSettings: () => _showHeightAdjustmentDialog(context),
-              customTabBuilder: (context, dict, index) {
-                if (dict.isImages) {
-                  return _buildImagesPageView(context);
-                }
-                return null;
-              },
-              onAddAITranslationToField: _addPendingTranslationToField,
-            ),
+    final browserHeight = _popupHeight.toDouble().clamp(
+          DictionaryService.minPopupHeight.toDouble(),
+          screenHeight * 0.75,
+        );
+
+    final isBottomFormFocused =
+        _translationFocusNode.hasFocus || _romanizationFocusNode.hasFocus;
+    final isBottomEditing = isBottomFormFocused && isKeyboardOpen;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0.0, end: isBottomEditing ? 1.0 : 0.0),
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) {
+        final currentKeyboardOffset = keyboardHeight * t;
+
+        return SizedBox(
+          height: screenHeight,
+          width: double.infinity,
+          child: Stack(
+            children: [
+              // Full-screen focus scrim over the entire screen behind the modal
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    if (isKeyboardOpen) {
+                      FocusScope.of(context).unfocus();
+                    } else {
+                      Navigator.of(context).pop();
+                    }
+                  },
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.50 * t),
+                  ),
+                ),
+              ),
+
+              // Modal sheet container aligned to bottom
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxHeight: maxModalHeight,
+                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                  decoration: BoxDecoration(
+                    color: context.appColorScheme.background.background,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
+                  ),
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Top browser card: stationary in x, y; moves into screen along z-axis
+                        Transform(
+                          alignment: Alignment.center,
+                          transform: Matrix4.diagonal3Values(
+                            1.0 - 0.04 * t,
+                            1.0 - 0.04 * t,
+                            1.0,
+                          )
+                            ..setTranslationRaw(0.0, 0.0, -25.0 * t)
+                            ..setEntry(3, 2, 0.001),
+                          child: Stack(
+                            children: [
+                              ExcludeFocus(
+                                excluding: t > 0.01,
+                                child: SizedBox(
+                                  height: browserHeight,
+                                  child: DictionaryBrowserView(
+                                    key: _browserViewKey,
+                                    dictionaries: _dictionaries,
+                                    initialPage: _currentPage,
+                                    searchText: widget.termForm.term,
+                                    sentence: widget.sentence,
+                                    languageId: widget.termForm.languageId,
+                                    isSentence: false,
+                                    dictionaryService: widget.dictionaryService,
+                                    onPageChanged: (index) {
+                                      _currentPage = index;
+                                      if (index < _dictionaries.length &&
+                                          _dictionaries[index].isImages &&
+                                          _imageSearchResults.isEmpty &&
+                                          !_isLoadingImages) {
+                                        _searchImages();
+                                      }
+                                    },
+                                    onOpenSettings: () =>
+                                        _showHeightAdjustmentDialog(context),
+                                    customTabBuilder: (context, dict, index) {
+                                      if (dict.isImages) {
+                                        return _buildImagesPageView(context);
+                                      }
+                                      return null;
+                                    },
+                                    onAddAITranslationToField:
+                                        _addPendingTranslationToField,
+                                  ),
+                                ),
+                              ),
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  ignoring: t < 0.01,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => FocusScope.of(context).unfocus(),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Color.lerp(
+                                          Colors.transparent,
+                                          context.appColorScheme.background.background
+                                              .withValues(alpha: 0.94),
+                                          t,
+                                        ),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: context.appColorScheme.border.dividerColor
+                                              .withValues(alpha: 0.3 * t),
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: Opacity(
+                                          opacity:
+                                              (t - 0.3).clamp(0.0, 1.0) / 0.7,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 14, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: context
+                                                  .appColorScheme
+                                                  .background
+                                                  .surface
+                                                  .withValues(alpha: 0.85),
+                                              borderRadius:
+                                                  BorderRadius.circular(20),
+                                              border: Border.all(
+                                                color: context
+                                                    .appColorScheme
+                                                    .border
+                                                    .dividerColor
+                                                    .withValues(alpha: 0.6),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.edit_note_rounded,
+                                                  size: 18,
+                                                  color: context.m3Primary,
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  'Tap to return to dictionary',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .labelMedium
+                                                      ?.copyWith(
+                                                        color: context
+                                                            .appColorScheme
+                                                            .text
+                                                            .primary,
+                                                        fontWeight:
+                                                            FontWeight.w500,
+                                                      ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            vertical: 14.0 * (1.0 - t).clamp(0.0, 1.0),
+                          ),
+                          child: Opacity(
+                            opacity: (1.0 - t).clamp(0.0, 1.0),
+                            child: Divider(
+                              height: 1,
+                              thickness: 1.5,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .outline
+                                  .withValues(alpha: 0.35),
+                            ),
+                          ),
+                        ),
+
+                        // Bottom card: pushed along y-axis by keyboard, blurring content behind it
+                        Transform.translate(
+                          offset: Offset(0, -currentKeyboardOffset),
+                          child: _buildTermFormSection(context, t),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          Padding(
-            padding: const EdgeInsets.only(top: 14, bottom: 14),
-            child: Divider(
-              height: 1,
-              thickness: 1.5,
-              color: Theme.of(context)
-                  .colorScheme
-                  .outline
-                  .withValues(alpha: 0.35),
-            ),
-          ),
-          _buildTermFormSection(context),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1191,109 +1364,117 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
   }
 
   // --- Bottom Term Form Section ---
-  Widget _buildTermFormSection(BuildContext context) {
+  Widget _buildTermFormSection(BuildContext context, [double t = 0.0]) {
     final settings = ref.watch(termFormSettingsProvider);
 
     return Container(
       decoration: BoxDecoration(
         color: context.appColorScheme.background.surface,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: context.appColorScheme.border.dividerColor
-              .withValues(alpha: 0.5),
+              .withValues(alpha: 0.5 + 0.3 * t),
           width: 1,
         ),
+        boxShadow: t > 0.001
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25 * t),
+                  blurRadius: 16 * t,
+                  spreadRadius: 1 * t,
+                  offset: Offset(0, -4 * t),
+                ),
+              ]
+            : null,
       ),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Row 1: Term Title + TTS Button + (Right: Image Button if enabled)
-            Row(
-              children: [
-                Flexible(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onLongPress: () => _showEditTermDialog(context),
-                    child: Text(
-                      widget.termForm.term,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: context.appColorScheme.text.primary,
-                          ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Row 1: Term Title + TTS Button + (Right: Image Button if enabled)
+          Row(
+            children: [
+              Flexible(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onLongPress: () => _showEditTermDialog(context),
+                  child: Text(
+                    widget.termForm.term,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: context.appColorScheme.text.primary,
+                        ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const SizedBox(width: 6),
-                Consumer(
-                  builder: (context, ref, child) {
-                    final ttsState = ref.watch(sentenceTTSProvider);
-                    final isCurrentTerm =
-                        ttsState.currentText == widget.termForm.term;
+              ),
+              const SizedBox(width: 6),
+              Consumer(
+                builder: (context, ref, child) {
+                  final ttsState = ref.watch(sentenceTTSProvider);
+                  final isCurrentTerm =
+                      ttsState.currentText == widget.termForm.term;
 
-                    IconData icon;
-                    Color color;
-                    VoidCallback? onPressed;
+                  IconData icon;
+                  Color color;
+                  VoidCallback? onPressed;
 
-                    if (isCurrentTerm && ttsState.isLoading) {
-                      icon = Icons.hourglass_empty;
-                      color = context.m3Primary;
-                      onPressed = null;
-                    } else if (isCurrentTerm && ttsState.isPlaying) {
-                      icon = Icons.stop;
-                      color = context.error;
-                      onPressed = () =>
-                          ref.read(sentenceTTSProvider.notifier).stop();
-                    } else {
-                      icon = Icons.volume_up;
-                      color = context.m3Primary;
-                      onPressed = () => ref
-                          .read(sentenceTTSProvider.notifier)
-                          .speakSentence(widget.termForm.term, 0);
-                    }
+                  if (isCurrentTerm && ttsState.isLoading) {
+                    icon = Icons.hourglass_empty;
+                    color = context.m3Primary;
+                    onPressed = null;
+                  } else if (isCurrentTerm && ttsState.isPlaying) {
+                    icon = Icons.stop;
+                    color = context.error;
+                    onPressed = () =>
+                        ref.read(sentenceTTSProvider.notifier).stop();
+                  } else {
+                    icon = Icons.volume_up;
+                    color = context.m3Primary;
+                    onPressed = () => ref
+                        .read(sentenceTTSProvider.notifier)
+                        .speakSentence(widget.termForm.term, 0);
+                  }
 
-                    return IconButton(
-                      icon: Icon(icon, size: 20),
-                      color: color,
-                      onPressed: onPressed,
-                      tooltip: isCurrentTerm && ttsState.isPlaying
-                          ? 'Stop TTS'
-                          : 'Read term',
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                      padding: EdgeInsets.zero,
-                    );
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-
-            // Row 2: Translation Field + AI Quick add + Image Button
-            _buildTranslationField(context),
-            const SizedBox(height: 8),
-
-            // Row 3: Status buttons (1, 2, 3, 4, 5, ✓ 99, ✕ 98) evenly spaced
-            _buildStatusField(context),
-
-            if (widget.termForm.showRomanization &&
-                settings.showRomanization) ...[
-              const SizedBox(height: 8),
-              _buildRomanizationField(context),
+                  return IconButton(
+                    icon: Icon(icon, size: 20),
+                    color: color,
+                    onPressed: onPressed,
+                    tooltip: isCurrentTerm && ttsState.isPlaying
+                        ? 'Stop TTS'
+                        : 'Read term',
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    padding: EdgeInsets.zero,
+                  );
+                },
+              ),
             ],
-            if (settings.showTags) ...[
-              const SizedBox(height: 8),
-              _buildTagsSection(context),
-            ],
+          ),
+          const SizedBox(height: 6),
+
+          // Row 2: Translation Field + AI Quick add + Image Button
+          _buildTranslationField(context),
+          const SizedBox(height: 8),
+
+          // Row 3: Status buttons (1, 2, 3, 4, 5, ✓ 99, ✕ 98) evenly spaced
+          _buildStatusField(context),
+
+          if (widget.termForm.showRomanization &&
+              settings.showRomanization) ...[
             const SizedBox(height: 8),
-            _buildParentsSection(context),
+            _buildRomanizationField(context),
           ],
-        ),
+          if (settings.showTags) ...[
+            const SizedBox(height: 8),
+            _buildTagsSection(context),
+          ],
+          const SizedBox(height: 8),
+          _buildParentsSection(context),
+        ],
       ),
     );
   }
@@ -1395,6 +1576,7 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
             children: [
               Expanded(
                 child: TextFormField(
+                  focusNode: _translationFocusNode,
                   controller: _translationController,
                   decoration: InputDecoration(
                     labelText: 'Translation',
@@ -1593,6 +1775,7 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
 
   Widget _buildRomanizationField(BuildContext context) {
     return TextFormField(
+      focusNode: _romanizationFocusNode,
       controller: _romanizationController,
       decoration: InputDecoration(
         labelText: 'Romanization',
@@ -1615,53 +1798,39 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
   }
 
   Widget _buildTagsSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final tags = widget.termForm.tags ?? [];
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Tags',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: context.m3Secondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => _showAddTagDialog(context),
-              icon: const Icon(Icons.add, size: 15),
-              label: const Text(
-                'Add Tag',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        Text(
+          'Tags',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: context.m3Secondary,
+                fontWeight: FontWeight.w600,
               ),
-              style: OutlinedButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                minimumSize: const Size(0, 28),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                side: BorderSide(
-                  color: context.appColorScheme.border.dividerColor,
-                ),
-              ),
-            ),
-          ],
         ),
-        const SizedBox(height: 4),
-        if (widget.termForm.tags != null && widget.termForm.tags!.isNotEmpty)
-          SingleChildScrollView(
+        const SizedBox(width: 8),
+        Expanded(
+          child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: widget.termForm.tags!.map((tag) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: _buildTagChip(context, tag),
-                );
-              }).toList(),
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ...tags.map((tag) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: _buildTagChip(context, tag),
+                  );
+                }),
+                _buildAddBadgeButton(
+                  context: context,
+                  onTap: () => _showAddTagDialog(context),
+                  tooltip: 'Add Tag',
+                ),
+              ],
             ),
           ),
+        ),
       ],
     );
   }
@@ -1761,86 +1930,74 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     }
   }
 
-  Widget _buildParentsSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Parent Terms',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: context.m3Secondary,
-                    fontWeight: FontWeight.w600,
-                  ),
+  Widget _buildAddBadgeButton({
+    required BuildContext context,
+    required VoidCallback onTap,
+    required String tooltip,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            width: 26,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: context.appColorScheme.background.surfaceContainerHighest,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: context.appColorScheme.border.dividerColor,
+                width: 1,
+              ),
             ),
-            Row(
+            child: Icon(
+              Icons.add,
+              size: 16,
+              color: context.m3Primary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildParentsSection(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          'Parents',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: context.m3Secondary,
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                IconButton(
-                  onPressed: widget.termForm.parents.length == 1
-                      ? _toggleSyncStatus
-                      : null,
-                  icon: Icon(
-                    widget.termForm.parents.length > 1
-                        ? Icons.link_off
-                        : Icons.link,
-                    color: widget.termForm.parents.length == 1 &&
-                            widget.termForm.syncStatus == true
-                        ? context.success
-                        : null,
-                  ),
-                  tooltip: widget.termForm.parents.length > 1
-                      ? 'Cannot sync - multiple parents'
-                      : (widget.termForm.syncStatus == true
-                          ? 'Sync with parent: ON'
-                          : 'Sync with parent: OFF'),
-                  iconSize: 18,
-                  constraints: const BoxConstraints(
-                    minWidth: 28,
-                    minHeight: 28,
-                  ),
-                  padding: EdgeInsets.zero,
-                ),
-                const SizedBox(width: 4),
-                OutlinedButton.icon(
-                  onPressed: () => _showAddParentDialog(context),
-                  icon: const Icon(Icons.add, size: 15),
-                  label: const Text(
-                    'Add Parent',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    minimumSize: const Size(0, 28),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    side: BorderSide(
-                      color: context.appColorScheme.border.dividerColor,
-                    ),
-                  ),
+                ...widget.termForm.parents.map((parent) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: _buildParentChip(context, parent),
+                  );
+                }),
+                _buildAddBadgeButton(
+                  context: context,
+                  onTap: () => _showAddParentDialog(context),
+                  tooltip: 'Add Parent',
                 ),
               ],
             ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        if (widget.termForm.parents.isNotEmpty)
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: widget.termForm.parents.map((parent) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: _buildParentChip(context, parent),
-                );
-              }).toList(),
-            ),
           ),
+        ),
       ],
     );
   }
@@ -1873,7 +2030,8 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
               parent.term,
               style: TextStyle(color: textColor, fontSize: 11),
             ),
-            if (parent.translation != null) ...[
+            if (parent.translation != null &&
+                parent.translation!.trim().isNotEmpty) ...[
               const SizedBox(width: 4),
               Text(
                 '(${parent.translation})',
@@ -1889,15 +2047,6 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
         ),
       ),
     );
-  }
-
-  void _toggleSyncStatus() {
-    if (widget.termForm.parents.length == 1) {
-      final updatedForm = widget.termForm.copyWith(
-        syncStatus: widget.termForm.syncStatus != true,
-      );
-      widget.onUpdate(updatedForm);
-    }
   }
 
   void _showAddParentDialog(BuildContext context) {

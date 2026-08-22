@@ -401,11 +401,11 @@ class DictionaryBrowserViewState extends ConsumerState<DictionaryBrowserView> {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: context.appColorScheme.background.surfaceContainerHighest,
-          border: Border(
-            bottom: BorderSide(
-              color: context.appColorScheme.border.dividerColor,
-              width: 1,
-            ),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: context.appColorScheme.border.dividerColor
+                .withValues(alpha: 0.5),
+            width: 1,
           ),
         ),
         child: Row(
@@ -433,13 +433,14 @@ class DictionaryBrowserViewState extends ConsumerState<DictionaryBrowserView> {
       height: 38,
       decoration: BoxDecoration(
         color: context.appColorScheme.background.surfaceContainerHighest,
-        border: Border(
-          bottom: BorderSide(
-            color: context.appColorScheme.border.dividerColor,
-            width: 1,
-          ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: context.appColorScheme.border.dividerColor
+              .withValues(alpha: 0.5),
+          width: 1,
         ),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Row(
         children: [
           Expanded(

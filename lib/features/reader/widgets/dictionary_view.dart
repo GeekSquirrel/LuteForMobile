@@ -842,13 +842,14 @@ class _DictionaryViewState extends ConsumerState<DictionaryView> {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: context.appColorScheme.background.surfaceContainerHighest,
-        border: Border(
-          bottom: BorderSide(
-            color: context.appColorScheme.border.dividerColor,
-            width: 1,
-          ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: context.appColorScheme.border.dividerColor
+              .withValues(alpha: 0.5),
+          width: 1,
         ),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [

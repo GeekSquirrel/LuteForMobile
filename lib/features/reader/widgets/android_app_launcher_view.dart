@@ -40,6 +40,20 @@ class CustomWidgetLauncherItem implements LauncherItem {
   bool get isCustomWidget => true;
 }
 
+class _PlacedLauncherItem {
+  final LauncherItem item;
+  final int row;
+  final int col;
+  final int span;
+
+  const _PlacedLauncherItem({
+    required this.item,
+    required this.row,
+    required this.col,
+    required this.span,
+  });
+}
+
 class AndroidAppLauncherView extends ConsumerStatefulWidget {
   final String text;
   final bool isSentence;
@@ -211,35 +225,12 @@ class _AndroidAppLauncherViewState
       }
     });
 
-    final currentDefaultId =
-        config.getDefaultAppId(isSentence: widget.isSentence);
-    String? defaultItemLabel;
-    if (currentDefaultId != null) {
-      final customWidget = config.customWidgets
-          .where((w) => w.id == currentDefaultId)
-          .firstOrNull;
-      if (customWidget != null) {
-        defaultItemLabel = customWidget.name;
-      } else {
-        appsAsync.whenData((apps) {
-          final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
-          if (app != null) {
-            defaultItemLabel = app.label;
-          }
-        });
-      }
-    }
-
     if (widget.isInline) {
       return _buildInlineView(context, appsAsync, config);
     }
 
     return Column(
       children: [
-        if (defaultItemLabel != null) ...[
-          _buildDefaultAppBanner(context, defaultItemLabel!),
-          const Divider(height: 1, thickness: 1),
-        ],
         Expanded(
           child: appsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -276,22 +267,6 @@ class _AndroidAppLauncherViewState
   ) {
     final currentDefaultId =
         config.getDefaultAppId(isSentence: widget.isSentence);
-    String? defaultItemLabel;
-    if (currentDefaultId != null) {
-      final customWidget = config.customWidgets
-          .where((w) => w.id == currentDefaultId)
-          .firstOrNull;
-      if (customWidget != null) {
-        defaultItemLabel = customWidget.name;
-      } else {
-        appsAsync.whenData((apps) {
-          final app = apps.where((a) => a.id == currentDefaultId).firstOrNull;
-          if (app != null) {
-            defaultItemLabel = app.label;
-          }
-        });
-      }
-    }
 
     return Container(
       decoration: BoxDecoration(
@@ -311,43 +286,6 @@ class _AndroidAppLauncherViewState
           // Header row
           Row(
             children: [
-              if (defaultItemLabel != null) ...[
-                Flexible(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: context.m3Primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.bolt,
-                          size: 13,
-                          color: Colors.amber,
-                        ),
-                        const SizedBox(width: 3),
-                        Flexible(
-                          child: Text(
-                            defaultItemLabel!,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: context.m3Primary,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
               const Spacer(),
               Tooltip(
                 message: 'Add Custom Widget',
@@ -508,16 +446,12 @@ class _AndroidAppLauncherViewState
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isDefault
-                  ? context.m3Primary
-                  : context.appColorScheme.border.dividerColor
-                      .withValues(alpha: 0.3),
-              width: isDefault ? 1.5 : 1,
+              color: context.appColorScheme.border.dividerColor
+                  .withValues(alpha: 0.3),
+              width: 1,
             ),
-            color: isDefault
-                ? context.m3Primary.withValues(alpha: 0.1)
-                : context.appColorScheme.background.surface
-                    .withValues(alpha: 0.5),
+            color: context.appColorScheme.background.surface
+                .withValues(alpha: 0.5),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -550,11 +484,8 @@ class _AndroidAppLauncherViewState
                 app.label,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       fontSize: 10,
-                      fontWeight:
-                          isDefault ? FontWeight.bold : FontWeight.w500,
-                      color: isDefault
-                          ? context.m3Primary
-                          : context.appColorScheme.text.primary,
+                      fontWeight: FontWeight.w500,
+                      color: context.appColorScheme.text.primary,
                     ),
                 textAlign: TextAlign.center,
                 maxLines: 1,
@@ -587,26 +518,12 @@ class _AndroidAppLauncherViewState
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: isDefault
-                  ? [
-                      context.m3Primary.withValues(alpha: 0.18),
-                      context.m3Primary.withValues(alpha: 0.08),
-                    ]
-                  : [
-                      context.appColorScheme.background.surfaceContainerHighest
-                          .withValues(alpha: 0.65),
-                      context.appColorScheme.background.surface
-                          .withValues(alpha: 0.4),
-                    ],
-            ),
+            color: context.appColorScheme.background.surfaceContainerHighest
+                .withValues(alpha: 0.25),
             border: Border.all(
-              color: isDefault
-                  ? context.m3Primary
-                  : context.m3Primary.withValues(alpha: 0.35),
-              width: isDefault ? 1.5 : 1,
+              color: context.appColorScheme.border.dividerColor
+                  .withValues(alpha: 0.35),
+              width: 1,
             ),
           ),
           child: Column(
@@ -729,51 +646,6 @@ class _AndroidAppLauncherViewState
         borderRadius: BorderRadius.circular(6),
       ),
       child: Icon(Icons.open_in_new, size: 18, color: context.m3Primary),
-    );
-  }
-
-  Widget _buildDefaultAppBanner(BuildContext context, String defaultItemLabel) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      color: context.appColorScheme.background.surfaceContainerHighest.withValues(
-        alpha: 0.3,
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 6,
-              vertical: 2,
-            ),
-            decoration: BoxDecoration(
-              color: context.m3Primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.bolt,
-                  size: 13,
-                  color: Colors.amber,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  'Instant: $defaultItemLabel',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: context.m3Primary,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -914,6 +786,91 @@ class _AndroidAppLauncherViewState
     );
   }
 
+  List<_PlacedLauncherItem> _computePlacements(
+    List<LauncherItem> items,
+    int columns,
+  ) {
+    if (items.isEmpty) return const [];
+    if (columns <= 0) columns = 1;
+
+    final placements = <_PlacedLauncherItem>[];
+    final occupied = <List<bool>>[];
+    final remaining = List<LauncherItem>.from(items);
+
+    int currentRow = 0;
+    int currentCol = 0;
+
+    while (remaining.isNotEmpty) {
+      while (occupied.length <= currentRow) {
+        occupied.add(List<bool>.filled(columns, false));
+      }
+
+      int foundCol = -1;
+      for (int c = currentCol; c < columns; c++) {
+        if (!occupied[currentRow][c]) {
+          foundCol = c;
+          break;
+        }
+      }
+
+      if (foundCol == -1) {
+        currentRow++;
+        currentCol = 0;
+        continue;
+      }
+
+      currentCol = foundCol;
+
+      int freeSpan = 0;
+      for (int c = currentCol; c < columns && !occupied[currentRow][c]; c++) {
+        freeSpan++;
+      }
+
+      int chosenIndex = -1;
+      int itemSpan = 1;
+
+      if (freeSpan >= 2) {
+        chosenIndex = 0;
+        final item = remaining[0];
+        itemSpan = (item.isCustomWidget ? 2 : 1).clamp(1, columns);
+      } else {
+        if (!remaining[0].isCustomWidget || columns == 1) {
+          chosenIndex = 0;
+          itemSpan = 1;
+        } else {
+          final singleIndex =
+              remaining.indexWhere((it) => !it.isCustomWidget);
+          if (singleIndex != -1) {
+            chosenIndex = singleIndex;
+            itemSpan = 1;
+          } else {
+            occupied[currentRow][currentCol] = true;
+            currentCol++;
+            continue;
+          }
+        }
+      }
+
+      final item = remaining.removeAt(chosenIndex);
+      for (int i = 0; i < itemSpan; i++) {
+        if (currentCol + i < columns) {
+          occupied[currentRow][currentCol + i] = true;
+        }
+      }
+
+      placements.add(_PlacedLauncherItem(
+        item: item,
+        row: currentRow,
+        col: currentCol,
+        span: itemSpan,
+      ));
+
+      currentCol += itemSpan;
+    }
+
+    return placements;
+  }
+
   Widget _buildAppGrid(
     BuildContext context,
     List<LauncherItem> visibleItems,
@@ -926,46 +883,67 @@ class _AndroidAppLauncherViewState
         final double spacing = 6.0;
         final double availableWidth = constraints.maxWidth - (padding * 2);
 
-        // 4 columns layout
-        final int columns = 4;
+        // Dynamically adjust column count based on available width
+        final int columns =
+            ((availableWidth + spacing) / (76.0 + spacing)).round().clamp(3, 10);
         final double unitWidth =
             ((availableWidth - ((columns - 1) * spacing)) / columns)
                 .floorToDouble();
-        final double doubleWidth = (unitWidth * 2) + spacing;
-        final double itemHeight = (unitWidth / 0.85).roundToDouble();
+        const double itemHeight = 82.0;
 
         final currentDefaultId =
             config.getDefaultAppId(isSentence: widget.isSentence);
 
+        final placements = _computePlacements(visibleItems, columns);
+        int maxRow = 0;
+        for (final p in placements) {
+          if (p.row > maxRow) maxRow = p.row;
+        }
+        final totalRows = placements.isEmpty ? 0 : maxRow + 1;
+        final totalHeight = totalRows * itemHeight +
+            (totalRows > 1 ? (totalRows - 1) * spacing : 0.0);
+
         return SingleChildScrollView(
           padding: EdgeInsets.symmetric(horizontal: padding, vertical: padding),
-          child: Wrap(
-            spacing: spacing,
-            runSpacing: spacing,
-            children: visibleItems.map((item) {
-              final isDefault = item.id == currentDefaultId;
-              final width = item.isCustomWidget ? doubleWidth : unitWidth;
+          child: SizedBox(
+            width: availableWidth,
+            height: totalHeight,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: placements.map((placement) {
+                final item = placement.item;
+                final isDefault = item.id == currentDefaultId;
+                final double left =
+                    placement.col * (unitWidth + spacing);
+                final double top =
+                    placement.row * (itemHeight + spacing);
+                final double width = placement.span == 1
+                    ? unitWidth
+                    : (placement.span * unitWidth + (placement.span - 1) * spacing);
 
-              return SizedBox(
-                width: width,
-                height: itemHeight,
-                child: item.isCustomWidget
-                    ? _buildCustomWidgetItem(
-                        context,
-                        (item as CustomWidgetLauncherItem).widgetConfig,
-                        isDefault,
-                        config,
-                        allApps,
-                      )
-                    : _buildAppItem(
-                        context,
-                        (item as AppLauncherItem).app,
-                        isDefault,
-                        config,
-                        allApps,
-                      ),
-              );
-            }).toList(),
+                return Positioned(
+                  left: left,
+                  top: top,
+                  width: width,
+                  height: itemHeight,
+                  child: item.isCustomWidget
+                      ? _buildCustomWidgetItem(
+                          context,
+                          (item as CustomWidgetLauncherItem).widgetConfig,
+                          isDefault,
+                          config,
+                          allApps,
+                        )
+                      : _buildAppItem(
+                          context,
+                          (item as AppLauncherItem).app,
+                          isDefault,
+                          config,
+                          allApps,
+                        ),
+                );
+              }).toList(),
+            ),
           ),
         );
       },
@@ -991,55 +969,54 @@ class _AndroidAppLauncherViewState
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isDefault
-                  ? context.m3Primary
-                  : context.appColorScheme.border.dividerColor.withValues(
-                      alpha: 0.35,
-                    ),
-              width: isDefault ? 1.5 : 1,
+              color: context.appColorScheme.border.dividerColor.withValues(
+                alpha: 0.35,
+              ),
+              width: 1,
             ),
-            color: isDefault
-                ? context.m3Primary.withValues(alpha: 0.08)
-                : context.appColorScheme.background.surfaceContainerHighest
-                    .withValues(alpha: 0.25),
+            color: context.appColorScheme.background.surfaceContainerHighest
+                .withValues(alpha: 0.25),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  _buildAppIcon(app.iconBase64),
-                  if (isDefault)
-                    Positioned(
-                      right: -4,
-                      top: -4,
-                      child: Container(
-                        padding: const EdgeInsets.all(1.5),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.shade700,
-                          shape: BoxShape.circle,
+              SizedBox(
+                height: 34,
+                child: Center(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      _buildAppIcon(app.iconBase64),
+                      if (isDefault)
+                        Positioned(
+                          right: -4,
+                          top: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(1.5),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade700,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.bolt,
+                              size: 10,
+                              color: Colors.white,
+                            ),
+                          ),
                         ),
-                        child: const Icon(
-                          Icons.bolt,
-                          size: 11,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                ],
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 app.label,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       fontSize: 10.5,
-                      fontWeight:
-                          isDefault ? FontWeight.bold : FontWeight.w500,
-                      color: isDefault
-                          ? context.m3Primary
-                          : context.appColorScheme.text.primary,
+                      height: 1.2,
+                      fontWeight: FontWeight.w500,
+                      color: context.appColorScheme.text.primary,
                     ),
                 textAlign: TextAlign.center,
                 maxLines: 2,
@@ -1069,85 +1046,62 @@ class _AndroidAppLauncherViewState
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: isDefault
-                  ? [
-                      context.m3Primary.withValues(alpha: 0.18),
-                      context.m3Primary.withValues(alpha: 0.08),
-                    ]
-                  : [
-                      context.appColorScheme.background.surfaceContainerHighest
-                          .withValues(alpha: 0.7),
-                      context.appColorScheme.background.surface
-                          .withValues(alpha: 0.45),
-                    ],
-            ),
+            color: context.appColorScheme.background.surfaceContainerHighest
+                .withValues(alpha: 0.25),
             border: Border.all(
-              color: isDefault
-                  ? context.m3Primary
-                  : context.m3Primary.withValues(alpha: 0.35),
-              width: isDefault ? 1.5 : 1,
+              color: context.appColorScheme.border.dividerColor
+                  .withValues(alpha: 0.35),
+              width: 1,
             ),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  _buildSmallAppIcon(customWidget.targetAppIconBase64, size: 20),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      customWidget.targetAppLabel,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: context.m3Primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (isDefault)
-                    Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.shade700,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.bolt,
-                        size: 11,
-                        color: Colors.white,
+              SizedBox(
+                height: 34,
+                child: Row(
+                  children: [
+                    _buildSmallAppIcon(customWidget.targetAppIconBase64, size: 24),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        customWidget.name,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: context.appColorScheme.text.primary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                ],
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Text(
-                  customWidget.name,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12.5,
-                        color: context.appColorScheme.text.primary,
+                    if (isDefault)
+                      Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade700,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.bolt,
+                          size: 10,
+                          color: Colors.white,
+                        ),
                       ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  ],
                 ),
               ),
+              const SizedBox(height: 4),
               Text(
-                '模板: ${customWidget.template}',
+                customWidget.template,
                 style: TextStyle(
-                  fontSize: 9.5,
+                  fontSize: 10,
+                  height: 1.2,
                   color: context.appColorScheme.text.primary
                       .withValues(alpha: 0.6),
                 ),
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
             ],
@@ -1162,11 +1116,11 @@ class _AndroidAppLauncherViewState
       try {
         final Uint8List bytes = getOrDecodeAppIconBytes(iconBase64);
         return ClipRRect(
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: BorderRadius.circular(8),
           child: Image.memory(
             bytes,
-            width: 36,
-            height: 36,
+            width: 34,
+            height: 34,
             fit: BoxFit.cover,
             gaplessPlayback: true,
             excludeFromSemantics: true,
@@ -1183,11 +1137,11 @@ class _AndroidAppLauncherViewState
 
   Widget _buildFallbackIcon() {
     return Container(
-      width: 36,
-      height: 36,
+      width: 34,
+      height: 34,
       decoration: BoxDecoration(
         color: context.m3Primary.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Icon(Icons.open_in_new, size: 18, color: context.m3Primary),
     );
