@@ -44,6 +44,7 @@ class SentenceTranslationWidget extends ConsumerStatefulWidget {
 class _SentenceTranslationWidgetState
     extends ConsumerState<SentenceTranslationWidget> {
   late TextEditingController _textController;
+  late final FocusNode _textFocusNode;
   late String _currentText;
   Timer? _debounceTimer;
   List<DictionarySource> _dictionaries = [];
@@ -55,9 +56,27 @@ class _SentenceTranslationWidgetState
   void initState() {
     super.initState();
     _currentText = widget.sentence;
+    _textFocusNode = FocusNode();
+    _textFocusNode.addListener(_onFocusChange);
     _textController = TextEditingController(text: _currentText);
     _loadPopupHeight();
     _loadDictionaries();
+  }
+
+  void _onFocusChange() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _textFocusNode.removeListener(_onFocusChange);
+    _textFocusNode.dispose();
+    _textController.dispose();
+    _debounceTimer?.cancel();
+    ref.read(sentenceTTSProvider.notifier).stop();
+    super.dispose();
   }
 
   @override
@@ -199,20 +218,12 @@ class _SentenceTranslationWidgetState
   }
 
   @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    _textController.dispose();
-    ref.read(sentenceTTSProvider.notifier).stop();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
     final viewInsets = MediaQuery.of(context).viewInsets;
+    final keyboardHeight = viewInsets.bottom;
+    final isKeyboardOpen = keyboardHeight > 0;
     final maxModalHeight = screenHeight * 0.94;
-    final maxAvailableHeight =
-        (screenHeight - viewInsets.bottom - 16).clamp(240.0, maxModalHeight);
 
     final browserHeight = _popupHeight.toDouble().clamp(
           DictionaryService.minPopupHeight.toDouble(),
@@ -221,7 +232,7 @@ class _SentenceTranslationWidgetState
 
     if (!_hasLoaded) {
       return Container(
-        constraints: BoxConstraints(maxHeight: maxAvailableHeight),
+        constraints: BoxConstraints(maxHeight: maxModalHeight),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: context.appColorScheme.background.background,
@@ -231,61 +242,220 @@ class _SentenceTranslationWidgetState
       );
     }
 
-    return Container(
-      constraints: BoxConstraints(maxHeight: maxAvailableHeight),
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-      decoration: BoxDecoration(
-        color: context.appColorScheme.background.background,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              height: browserHeight,
-              child: DictionaryBrowserView(
-                dictionaries: _dictionaries,
-                initialPage: _currentPage,
-                searchText: _currentText,
-                languageId: widget.languageId,
-                isSentence: true,
-                dictionaryService: widget.dictionaryService,
-                onPageChanged: (index) {
-                  _currentPage = index;
-                },
-                onOpenSettings: () => _showHeightAdjustmentDialog(context),
+    final isBottomEditing = _textFocusNode.hasFocus && isKeyboardOpen;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0.0, end: isBottomEditing ? 1.0 : 0.0),
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) {
+        final currentKeyboardOffset = keyboardHeight * t;
+
+        return SizedBox(
+          height: screenHeight,
+          width: double.infinity,
+          child: Stack(
+            children: [
+              // Full-screen focus scrim over the entire screen behind the modal
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    if (isKeyboardOpen) {
+                      FocusScope.of(context).unfocus();
+                    } else {
+                      Navigator.of(context).pop();
+                    }
+                  },
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.50 * t),
+                  ),
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 14, bottom: 14),
-              child: Divider(
-                height: 1,
-                thickness: 1.5,
-                color: Theme.of(context)
-                    .colorScheme
-                    .outline
-                    .withValues(alpha: 0.35),
+
+              // Modal sheet container aligned to bottom
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  constraints: BoxConstraints(maxHeight: maxModalHeight),
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                  decoration: BoxDecoration(
+                    color: context.appColorScheme.background.background,
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Top browser card: stationary in x, y; moves into screen along z-axis
+                      Transform(
+                        alignment: Alignment.center,
+                        transform: Matrix4.diagonal3Values(
+                          1.0 - 0.04 * t,
+                          1.0 - 0.04 * t,
+                          1.0,
+                        )
+                          ..setTranslationRaw(0.0, 0.0, -25.0 * t)
+                          ..setEntry(3, 2, 0.001),
+                        child: Stack(
+                          children: [
+                            ExcludeFocus(
+                              excluding: t > 0.01,
+                              child: SizedBox(
+                                height: browserHeight,
+                                child: DictionaryBrowserView(
+                                  dictionaries: _dictionaries,
+                                  initialPage: _currentPage,
+                                  searchText: _currentText,
+                                  languageId: widget.languageId,
+                                  isSentence: true,
+                                  dictionaryService: widget.dictionaryService,
+                                  onPageChanged: (index) {
+                                    _currentPage = index;
+                                  },
+                                  onOpenSettings: () =>
+                                      _showHeightAdjustmentDialog(context),
+                                ),
+                              ),
+                            ),
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                ignoring: t < 0.01,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => FocusScope.of(context).unfocus(),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Color.lerp(
+                                        Colors.transparent,
+                                        context
+                                            .appColorScheme
+                                            .background
+                                            .background
+                                            .withValues(alpha: 0.94),
+                                        t,
+                                      ),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: context
+                                            .appColorScheme
+                                            .border
+                                            .dividerColor
+                                            .withValues(alpha: 0.3 * t),
+                                      ),
+                                    ),
+                                    child: Center(
+                                      child: Opacity(
+                                        opacity:
+                                            (t - 0.3).clamp(0.0, 1.0) / 0.7,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 14, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: context
+                                                .appColorScheme
+                                                .background
+                                                .surface
+                                                .withValues(alpha: 0.85),
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                            border: Border.all(
+                                              color: context
+                                                  .appColorScheme
+                                                  .border
+                                                  .dividerColor
+                                                  .withValues(alpha: 0.6),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.edit_note_rounded,
+                                                size: 18,
+                                                color: context.m3Primary,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                'Tap to return to dictionary',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .labelMedium
+                                                    ?.copyWith(
+                                                      color: context
+                                                          .appColorScheme
+                                                          .text
+                                                          .primary,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: 14.0 * (1.0 - t).clamp(0.0, 1.0),
+                        ),
+                        child: Opacity(
+                          opacity: (1.0 - t).clamp(0.0, 1.0),
+                          child: Divider(
+                            height: 1,
+                            thickness: 1.5,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .outline
+                                .withValues(alpha: 0.35),
+                          ),
+                        ),
+                      ),
+
+                      // Bottom card: pushed along y-axis by keyboard, blurring content behind it
+                      Transform.translate(
+                        offset: Offset(0, -currentKeyboardOffset),
+                        child: _buildTextSection(context, t),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-            _buildTextSection(context),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildTextSection(BuildContext context) {
+  Widget _buildTextSection(BuildContext context, [double t = 0.0]) {
     return Container(
       decoration: BoxDecoration(
         color: context.appColorScheme.background.surface,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: context.appColorScheme.border.dividerColor
-              .withValues(alpha: 0.5),
+              .withValues(alpha: 0.5 + 0.3 * t),
           width: 1,
         ),
+        boxShadow: t > 0.001
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25 * t),
+                  blurRadius: 16 * t,
+                  spreadRadius: 1 * t,
+                  offset: Offset(0, -4 * t),
+                ),
+              ]
+            : null,
       ),
       padding: const EdgeInsets.all(12),
       child: Column(
@@ -375,9 +545,10 @@ class _SentenceTranslationWidgetState
           ),
           const SizedBox(height: 6),
           TextField(
+            focusNode: _textFocusNode,
             controller: _textController,
-            maxLines: 6,
-            minLines: 4,
+            maxLines: 4,
+            minLines: 3,
             style: Theme.of(context).textTheme.bodyMedium,
             decoration: InputDecoration(
               isDense: true,

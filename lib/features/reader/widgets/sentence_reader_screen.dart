@@ -1489,15 +1489,9 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
       builder: (context) {
         final repository = ref.read(readerRepositoryProvider);
         final settings = ref.read(termFormSettingsProvider);
-        return AnimatedPadding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeInOut,
-          child: PopScope(
-            canPop: !_isDictionaryOpen,
-            onPopInvoked: (didPop) async {
+        return PopScope(
+          canPop: !_isDictionaryOpen,
+          onPopInvoked: (didPop) async {
               if (didPop) {
                 if (settings.autoSave && _shouldAutoSaveOnClose) {
                   final updatedForm = _currentTermForm ?? termForm;
@@ -1622,10 +1616,11 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
                               }
                               return existingParent;
                             }).toList();
-                            setState(() {
-                              _currentTermForm = latest.copyWith(parents: updatedParents);
-                            });
-                            setModalState(() {});
+                            _currentTermForm = latest.copyWith(parents: updatedParents);
+                            if (mounted) {
+                              setState(() {});
+                              setModalState(() {});
+                            }
                           },
                         );
                       }
@@ -1640,9 +1635,8 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
                   );
                 },
             ),
-          ),
-        );
-      },
+          );
+        },
     );
   }
 
@@ -1662,17 +1656,26 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
       builder: (context) {
         final repository = ref.read(readerRepositoryProvider);
         final settings = ref.read(termFormSettingsProvider);
-        return AnimatedPadding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeInOut,
-          child: PopScope(
-            canPop: !_isDictionaryOpen,
-            onPopInvoked: (didPop) async {
-              if (didPop && settings.autoSave && _shouldAutoSaveOnClose) {
-                final updatedForm = currentForm;
+
+        void notifyParentUpdated(TermForm form) {
+          onParentUpdated?.call(
+            TermParent(
+              id: form.termId,
+              term: form.term,
+              translation: form.translation,
+              status: int.tryParse(form.status),
+              syncStatus: form.syncStatus,
+            ),
+          );
+        }
+
+        return PopScope(
+          canPop: !_isDictionaryOpen,
+          onPopInvoked: (didPop) async {
+            if (didPop) {
+              final updatedForm = currentForm;
+              notifyParentUpdated(updatedForm);
+              if (settings.autoSave && _shouldAutoSaveOnClose) {
                 final success = await ref
                     .read(readerProvider.notifier)
                     .saveTerm(updatedForm);
@@ -1700,132 +1703,125 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
                   );
                 }
               }
-            },
-            child: StatefulBuilder(
-              builder: (context, setModalState) {
-                return TermFormWidget(
-                  termForm: currentForm,
-                  sentence: sentence,
-                    initialReaderStatus: null,
-                    contentService: repository.contentService,
-                    dictionaryService: DictionaryService(
-                      fetchLanguageSettingsHtml: (langId) => repository
-                          .contentService
-                          .getLanguageSettingsHtml(langId),
-                    ),
-                    onUpdate: (updatedForm) {
-                      currentForm = updatedForm;
-                      setModalState(() {});
-                    },
-                    onSave: (updatedForm) async {
-                      currentForm = updatedForm;
-                      final success = await ref
-                          .read(readerProvider.notifier)
-                          .saveTerm(updatedForm);
-                      if (success && mounted) {
-                        if (updatedForm.termId != null) {
+            }
+          },
+          child: StatefulBuilder(
+            builder: (context, setModalState) {
+              return TermFormWidget(
+                termForm: currentForm,
+                sentence: sentence,
+                initialReaderStatus: null,
+                contentService: repository.contentService,
+                dictionaryService: DictionaryService(
+                  fetchLanguageSettingsHtml: (langId) => repository
+                      .contentService
+                      .getLanguageSettingsHtml(langId),
+                ),
+                onUpdate: (updatedForm) {
+                  currentForm = updatedForm;
+                  notifyParentUpdated(updatedForm);
+                  setModalState(() {});
+                },
+                onSave: (updatedForm) async {
+                  currentForm = updatedForm;
+                  notifyParentUpdated(updatedForm);
+                  final success = await ref
+                      .read(readerProvider.notifier)
+                      .saveTerm(updatedForm);
+                  if (success && mounted) {
+                    if (updatedForm.termId != null) {
+                      setState(() {
+                        final existingTooltip =
+                            _termTooltips[updatedForm.termId!];
+                        if (existingTooltip != null) {
+                          _termTooltips[updatedForm.termId!] = TermTooltip(
+                            term: existingTooltip.term,
+                            translation: updatedForm.translation,
+                            termId: existingTooltip.termId,
+                            status: existingTooltip.status,
+                            statusText: existingTooltip.statusText,
+                            sentences: existingTooltip.sentences,
+                            language: existingTooltip.language,
+                            languageId: existingTooltip.languageId,
+                            parents: existingTooltip.parents,
+                            children: existingTooltip.children,
+                          );
+                        }
+                      });
+
+                      try {
+                        final freshTooltip = await ref
+                            .read(readerProvider.notifier)
+                            .fetchTermTooltip(updatedForm.termId!);
+                        if (freshTooltip != null && mounted) {
                           setState(() {
-                            final existingTooltip =
-                                _termTooltips[updatedForm.termId!];
-                            if (existingTooltip != null) {
-                              _termTooltips[updatedForm.termId!] = TermTooltip(
-                                term: existingTooltip.term,
-                                translation: updatedForm.translation,
-                                termId: existingTooltip.termId,
-                                status: existingTooltip.status,
-                                statusText: existingTooltip.statusText,
-                                sentences: existingTooltip.sentences,
-                                language: existingTooltip.language,
-                                languageId: existingTooltip.languageId,
-                                parents: existingTooltip.parents,
-                                children: existingTooltip.children,
-                              );
-                            }
+                            _termTooltips[updatedForm.termId!] = freshTooltip;
                           });
 
-                          try {
-                            final freshTooltip = await ref
-                                .read(readerProvider.notifier)
-                                .fetchTermTooltip(updatedForm.termId!);
-                            if (freshTooltip != null && mounted) {
-                              setState(() {
-                                _termTooltips[updatedForm.termId!] =
-                                    freshTooltip;
-                              });
-
-                              await Future.delayed(
-                                const Duration(milliseconds: 100),
-                              );
-                              await _refreshAffectedTermTooltips(freshTooltip);
-                            }
-                          } catch (e) {}
+                          await Future.delayed(
+                            const Duration(milliseconds: 100),
+                          );
+                          await _refreshAffectedTermTooltips(freshTooltip);
                         }
+                      } catch (e) {}
+                    }
 
-                        onParentUpdated?.call(
-                          TermParent(
-                            id: updatedForm.termId,
-                            term: updatedForm.term,
-                            translation: updatedForm.translation,
-                            status: int.tryParse(updatedForm.status),
-                            syncStatus: updatedForm.syncStatus,
-                          ),
-                        );
-                        Navigator.of(context).pop();
-                      }
-                    },
-                    onCancel: () {
-                      _shouldAutoSaveOnClose = false;
-                      Navigator.of(context).pop();
-                    },
-                    onDictionaryToggle: (isOpen) {
-                      setState(() {
-                        _isDictionaryOpen = isOpen;
-                      });
-                      setModalState(() {});
-                    },
-                    onParentDoubleTap: (parent) async {
-                      TermForm? parentTermForm;
-                      if (parent.id != null) {
-                        parentTermForm = await ref
-                            .read(readerProvider.notifier)
-                            .fetchTermFormById(parent.id!);
-                      } else {
-                        parentTermForm = await ref
-                            .read(readerProvider.notifier)
-                            .fetchTermForm(currentForm.languageId, parent.term);
-                      }
-                      if (parentTermForm != null && mounted) {
-                        _showParentTermForm(
-                          parentTermForm,
-                          sentence: sentence,
-                          onParentUpdated: (updatedParent) {
-                            final updatedParents = currentForm.parents.map((existingParent) {
-                              final matchById = updatedParent.id != null &&
-                                  existingParent.id != null &&
-                                  existingParent.id == updatedParent.id;
-                              final matchByTerm = existingParent.term.trim().toLowerCase() ==
-                                  updatedParent.term.trim().toLowerCase();
-                              if (matchById || matchByTerm) {
-                                return updatedParent;
-                              }
-                              return existingParent;
-                            }).toList();
-                            currentForm = currentForm.copyWith(parents: updatedParents);
-                            setModalState(() {});
-                          },
-                        );
-                      }
-                    },
-                    onStatus99Changed: (langId) async {
-                      if (ref.read(settingsProvider).showStatsBar) {
-                        await ref
-                            .read(termsProvider.notifier)
-                            .loadStats(langId);
-                      }
-                    },
-                  );
+                    Navigator.of(context).pop();
+                  }
                 },
-            ),
+                onCancel: () {
+                  _shouldAutoSaveOnClose = false;
+                  Navigator.of(context).pop();
+                },
+                onDictionaryToggle: (isOpen) {
+                  setState(() {
+                    _isDictionaryOpen = isOpen;
+                  });
+                  setModalState(() {});
+                },
+                onParentDoubleTap: (parent) async {
+                  TermForm? parentTermForm;
+                  if (parent.id != null) {
+                    parentTermForm = await ref
+                        .read(readerProvider.notifier)
+                        .fetchTermFormById(parent.id!);
+                  } else {
+                    parentTermForm = await ref
+                        .read(readerProvider.notifier)
+                        .fetchTermForm(currentForm.languageId, parent.term);
+                  }
+                  if (parentTermForm != null && mounted) {
+                    _showParentTermForm(
+                      parentTermForm,
+                      sentence: sentence,
+                      onParentUpdated: (updatedParent) {
+                        final updatedParents = currentForm.parents.map((existingParent) {
+                          final matchById = updatedParent.id != null &&
+                              existingParent.id != null &&
+                              existingParent.id == updatedParent.id;
+                          final matchByTerm = existingParent.term.trim().toLowerCase() ==
+                              updatedParent.term.trim().toLowerCase();
+                          if (matchById || matchByTerm) {
+                            return updatedParent;
+                          }
+                          return existingParent;
+                        }).toList();
+                        currentForm = currentForm.copyWith(parents: updatedParents);
+                        notifyParentUpdated(currentForm);
+                        setModalState(() {});
+                      },
+                    );
+                  }
+                },
+                onStatus99Changed: (langId) async {
+                  if (ref.read(settingsProvider).showStatsBar) {
+                    await ref
+                        .read(termsProvider.notifier)
+                        .loadStats(langId);
+                  }
+                },
+              );
+            },
           ),
         );
       },
@@ -1840,23 +1836,16 @@ class SentenceReaderScreenState extends ConsumerState<SentenceReaderScreen>
       isScrollControlled: true,
       backgroundColor: const Color(0x00000000),
       builder: (context) {
-        return AnimatedPadding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
+        return SentenceTranslationWidget(
+          sentence: sentence,
+          translation: null,
+          translationProvider: 'local',
+          languageId: languageId,
+          dictionaryService: DictionaryService(
+            fetchLanguageSettingsHtml: (langId) =>
+                repository.contentService.getLanguageSettingsHtml(langId),
           ),
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOut,
-          child: SentenceTranslationWidget(
-            sentence: sentence,
-            translation: null,
-            translationProvider: 'local',
-            languageId: languageId,
-            dictionaryService: DictionaryService(
-              fetchLanguageSettingsHtml: (langId) =>
-                  repository.contentService.getLanguageSettingsHtml(langId),
-            ),
-            onClose: () => Navigator.of(context).pop(),
-          ),
+          onClose: () => Navigator.of(context).pop(),
         );
       },
     );
