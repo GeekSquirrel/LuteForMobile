@@ -345,57 +345,6 @@ class _SentenceTranslationWidgetState
                                             .withValues(alpha: 0.3 * t),
                                       ),
                                     ),
-                                    child: Center(
-                                      child: Opacity(
-                                        opacity:
-                                            (t - 0.3).clamp(0.0, 1.0) / 0.7,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 14, vertical: 8),
-                                          decoration: BoxDecoration(
-                                            color: context
-                                                .appColorScheme
-                                                .background
-                                                .surface
-                                                .withValues(alpha: 0.85),
-                                            borderRadius:
-                                                BorderRadius.circular(20),
-                                            border: Border.all(
-                                              color: context
-                                                  .appColorScheme
-                                                  .border
-                                                  .dividerColor
-                                                  .withValues(alpha: 0.6),
-                                            ),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.edit_note_rounded,
-                                                size: 18,
-                                                color: context.m3Primary,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              Text(
-                                                'Tap to return to dictionary',
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .labelMedium
-                                                    ?.copyWith(
-                                                      color: context
-                                                          .appColorScheme
-                                                          .text
-                                                          .primary,
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                    ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
                                   ),
                                 ),
                               ),
@@ -502,35 +451,80 @@ class _SentenceTranslationWidgetState
                       final ttsState = ref.watch(sentenceTTSProvider);
                       final isCurrentSentence =
                           ttsState.currentText == _currentText;
+                      final isActive = isCurrentSentence &&
+                          (ttsState.isPlaying || ttsState.isPaused || ttsState.isLoading);
 
-                      IconData icon;
-                      Color color;
-                      VoidCallback? onPressed;
-
-                      if (isCurrentSentence && ttsState.isLoading) {
-                        icon = Icons.hourglass_empty;
-                        color = context.m3Primary;
-                        onPressed = null;
-                      } else if (isCurrentSentence && ttsState.isPlaying) {
-                        icon = Icons.stop;
-                        color = context.error;
-                        onPressed = () =>
-                            ref.read(sentenceTTSProvider.notifier).stop();
-                      } else {
-                        icon = Icons.volume_up;
-                        color = context.m3Primary;
-                        onPressed = () => ref
-                            .read(sentenceTTSProvider.notifier)
-                            .speakSentence(_currentText, 0);
+                      if (isActive) {
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Pause / Resume / Loading Button
+                            if (ttsState.isLoading)
+                              IconButton(
+                                icon: const Icon(Icons.hourglass_empty, size: 20),
+                                color: context.m3Primary,
+                                onPressed: null,
+                                tooltip: 'Loading TTS',
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                                padding: EdgeInsets.zero,
+                              )
+                            else if (ttsState.isPlaying)
+                              IconButton(
+                                icon: const Icon(Icons.pause, size: 20),
+                                color: context.m3Primary,
+                                onPressed: () =>
+                                    ref.read(sentenceTTSProvider.notifier).pause(),
+                                tooltip: 'Pause TTS',
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                                padding: EdgeInsets.zero,
+                              )
+                            else
+                              IconButton(
+                                icon: const Icon(Icons.play_arrow, size: 20),
+                                color: context.m3Primary,
+                                onPressed: () =>
+                                    ref.read(sentenceTTSProvider.notifier).resume(),
+                                tooltip: 'Resume TTS',
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                                padding: EdgeInsets.zero,
+                              ),
+                            // Stop Button
+                            IconButton(
+                              icon: const Icon(Icons.stop, size: 20),
+                              color: context.error,
+                              onPressed: () =>
+                                  ref.read(sentenceTTSProvider.notifier).stop(),
+                              tooltip: 'Stop TTS',
+                              constraints: const BoxConstraints(
+                                minWidth: 32,
+                                minHeight: 32,
+                              ),
+                              padding: EdgeInsets.zero,
+                            ),
+                          ],
+                        );
                       }
 
                       return IconButton(
-                        icon: Icon(icon, size: 20),
-                        color: color,
-                        onPressed: onPressed,
-                        tooltip: isCurrentSentence && ttsState.isPlaying
-                            ? 'Stop TTS'
-                            : 'Read text',
+                        icon: const Icon(Icons.volume_up, size: 20),
+                        color: context.m3Primary,
+                        onPressed: () => ref
+                            .read(sentenceTTSProvider.notifier)
+                            .speakSentence(
+                              _currentText,
+                              0,
+                              languageId: widget.languageId,
+                            ),
+                        tooltip: 'Read text',
                         constraints: const BoxConstraints(
                           minWidth: 32,
                           minHeight: 32,

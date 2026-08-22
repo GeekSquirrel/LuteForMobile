@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_ce_flutter/hive_ce_flutter.dart';
 import 'package:lute_for_mobile/app.dart';
 import 'package:lute_for_mobile/core/network/api_service.dart';
+import 'package:lute_for_mobile/core/network/tts_service.dart';
 import 'package:lute_for_mobile/core/providers/initial_providers.dart';
 import 'package:lute_for_mobile/core/services/backup_service.dart';
 import 'package:lute_for_mobile/core/services/server_health_service.dart';
@@ -36,6 +38,12 @@ Map<String, String> _loadCustomHeaders(SharedPreferences prefs) {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Pre-warm the on-device TTS engine on the main thread to prevent a native
+  // crash on OnePlus/Oplus devices when TextToSpeech is created during speak().
+  if (!kIsWeb) {
+    unawaited(OnDeviceTTSService.warmUp());
+  }
 
   final prefs = await SharedPreferences.getInstance();
   final localUrl = prefs.getString('local_url') ?? '';

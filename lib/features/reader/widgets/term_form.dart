@@ -127,6 +127,7 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
     _romanizationController.dispose();
     _imageSearchController.dispose();
     _debounceTimer?.cancel();
+    ref.read(sentenceTTSProvider.notifier).stop();
     super.dispose();
   }
 
@@ -1008,70 +1009,27 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
                                   ignoring: t < 0.01,
                                   child: GestureDetector(
                                     behavior: HitTestBehavior.opaque,
-                                    onTap: () => FocusScope.of(context).unfocus(),
+                                    onTap: () =>
+                                        FocusScope.of(context).unfocus(),
                                     child: Container(
                                       decoration: BoxDecoration(
                                         color: Color.lerp(
                                           Colors.transparent,
-                                          context.appColorScheme.background.background
+                                          context
+                                              .appColorScheme
+                                              .background
+                                              .background
                                               .withValues(alpha: 0.94),
                                           t,
                                         ),
-                                        borderRadius: BorderRadius.circular(10),
+                                        borderRadius:
+                                            BorderRadius.circular(10),
                                         border: Border.all(
-                                          color: context.appColorScheme.border.dividerColor
+                                          color: context
+                                              .appColorScheme
+                                              .border
+                                              .dividerColor
                                               .withValues(alpha: 0.3 * t),
-                                        ),
-                                      ),
-                                      child: Center(
-                                        child: Opacity(
-                                          opacity:
-                                              (t - 0.3).clamp(0.0, 1.0) / 0.7,
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 14, vertical: 8),
-                                            decoration: BoxDecoration(
-                                              color: context
-                                                  .appColorScheme
-                                                  .background
-                                                  .surface
-                                                  .withValues(alpha: 0.85),
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                              border: Border.all(
-                                                color: context
-                                                    .appColorScheme
-                                                    .border
-                                                    .dividerColor
-                                                    .withValues(alpha: 0.6),
-                                              ),
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(
-                                                  Icons.edit_note_rounded,
-                                                  size: 18,
-                                                  color: context.m3Primary,
-                                                ),
-                                                const SizedBox(width: 6),
-                                                Text(
-                                                  'Tap to return to dictionary',
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .labelMedium
-                                                      ?.copyWith(
-                                                        color: context
-                                                            .appColorScheme
-                                                            .text
-                                                            .primary,
-                                                        fontWeight:
-                                                            FontWeight.w500,
-                                                      ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
                                         ),
                                       ),
                                     ),
@@ -1415,35 +1373,80 @@ class _TermFormWidgetState extends ConsumerState<TermFormWidget> {
                   final ttsState = ref.watch(sentenceTTSProvider);
                   final isCurrentTerm =
                       ttsState.currentText == widget.termForm.term;
+                  final isActive = isCurrentTerm &&
+                      (ttsState.isPlaying || ttsState.isPaused || ttsState.isLoading);
 
-                  IconData icon;
-                  Color color;
-                  VoidCallback? onPressed;
-
-                  if (isCurrentTerm && ttsState.isLoading) {
-                    icon = Icons.hourglass_empty;
-                    color = context.m3Primary;
-                    onPressed = null;
-                  } else if (isCurrentTerm && ttsState.isPlaying) {
-                    icon = Icons.stop;
-                    color = context.error;
-                    onPressed = () =>
-                        ref.read(sentenceTTSProvider.notifier).stop();
-                  } else {
-                    icon = Icons.volume_up;
-                    color = context.m3Primary;
-                    onPressed = () => ref
-                        .read(sentenceTTSProvider.notifier)
-                        .speakSentence(widget.termForm.term, 0);
+                  if (isActive) {
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Pause / Resume / Loading Button
+                        if (ttsState.isLoading)
+                          IconButton(
+                            icon: const Icon(Icons.hourglass_empty, size: 20),
+                            color: context.m3Primary,
+                            onPressed: null,
+                            tooltip: 'Loading TTS',
+                            constraints: const BoxConstraints(
+                              minWidth: 32,
+                              minHeight: 32,
+                            ),
+                            padding: EdgeInsets.zero,
+                          )
+                        else if (ttsState.isPlaying)
+                          IconButton(
+                            icon: const Icon(Icons.pause, size: 20),
+                            color: context.m3Primary,
+                            onPressed: () =>
+                                ref.read(sentenceTTSProvider.notifier).pause(),
+                            tooltip: 'Pause TTS',
+                            constraints: const BoxConstraints(
+                              minWidth: 32,
+                              minHeight: 32,
+                            ),
+                            padding: EdgeInsets.zero,
+                          )
+                        else
+                          IconButton(
+                            icon: const Icon(Icons.play_arrow, size: 20),
+                            color: context.m3Primary,
+                            onPressed: () =>
+                                ref.read(sentenceTTSProvider.notifier).resume(),
+                            tooltip: 'Resume TTS',
+                            constraints: const BoxConstraints(
+                              minWidth: 32,
+                              minHeight: 32,
+                            ),
+                            padding: EdgeInsets.zero,
+                          ),
+                        // Stop Button
+                        IconButton(
+                          icon: const Icon(Icons.stop, size: 20),
+                          color: context.error,
+                          onPressed: () =>
+                              ref.read(sentenceTTSProvider.notifier).stop(),
+                          tooltip: 'Stop TTS',
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                          padding: EdgeInsets.zero,
+                        ),
+                      ],
+                    );
                   }
 
                   return IconButton(
-                    icon: Icon(icon, size: 20),
-                    color: color,
-                    onPressed: onPressed,
-                    tooltip: isCurrentTerm && ttsState.isPlaying
-                        ? 'Stop TTS'
-                        : 'Read term',
+                    icon: const Icon(Icons.volume_up, size: 20),
+                    color: context.m3Primary,
+                    onPressed: () => ref
+                        .read(sentenceTTSProvider.notifier)
+                        .speakSentence(
+                          widget.termForm.term,
+                          0,
+                          languageId: widget.termForm.languageId,
+                        ),
+                    tooltip: 'Read term',
                     constraints: const BoxConstraints(
                       minWidth: 32,
                       minHeight: 32,

@@ -46,58 +46,71 @@ class _SentenceTTSButtonState extends ConsumerState<SentenceTTSButton> {
       }
     });
 
-    IconData icon;
-    Color color;
-    VoidCallback? onPressed;
+    final isCurrentSentence = ttsState.currentText == widget.text;
+    final isActive = isCurrentSentence &&
+        (ttsState.isPlaying || ttsState.isPaused || ttsState.isLoading);
 
-    switch (ttsState.status) {
-      case SentenceTTSStatus.playing:
-        icon = Icons.stop;
-        color = errorColor;
-        onPressed = () => ref.read(sentenceTTSProvider.notifier).stop();
-        break;
-      case SentenceTTSStatus.error:
-        icon = Icons.refresh;
-        color = errorColor;
-        onPressed = () {
+    if (isActive) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Pause / Resume / Loading Button
+          if (ttsState.isLoading)
+            IconButton(
+              icon: const Icon(Icons.hourglass_empty),
+              color: iconColor,
+              onPressed: null,
+              tooltip: 'Loading TTS',
+            )
+          else if (ttsState.isPlaying)
+            IconButton(
+              icon: const Icon(Icons.pause),
+              color: iconColor,
+              onPressed: () =>
+                  ref.read(sentenceTTSProvider.notifier).pause(),
+              tooltip: 'Pause TTS',
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.play_arrow),
+              color: iconColor,
+              onPressed: () =>
+                  ref.read(sentenceTTSProvider.notifier).resume(),
+              tooltip: 'Resume TTS',
+            ),
+          // Stop Button
+          IconButton(
+            icon: const Icon(Icons.stop),
+            color: errorColor,
+            onPressed: () =>
+                ref.read(sentenceTTSProvider.notifier).stop(),
+            tooltip: 'Stop TTS',
+          ),
+        ],
+      );
+    }
+
+    if (ttsState.hasError && isCurrentSentence) {
+      return IconButton(
+        icon: const Icon(Icons.refresh),
+        color: errorColor,
+        onPressed: () {
           ref.read(sentenceTTSProvider.notifier).clearError();
           ref
               .read(sentenceTTSProvider.notifier)
               .speakSentence(widget.text, widget.sentenceId);
-        };
-        break;
-      case SentenceTTSStatus.loading:
-        icon = Icons.hourglass_empty;
-        color = iconColor;
-        onPressed = null;
-        break;
-      case SentenceTTSStatus.idle:
-        icon = Icons.volume_up;
-        color = iconColor;
-        onPressed = () => ref
-            .read(sentenceTTSProvider.notifier)
-            .speakSentence(widget.text, widget.sentenceId);
-        break;
+        },
+        tooltip: 'Retry TTS',
+      );
     }
 
     return IconButton(
-      icon: Icon(icon),
-      color: color,
-      onPressed: onPressed,
-      tooltip: _getTooltip(ttsState.status),
+      icon: const Icon(Icons.volume_up),
+      color: iconColor,
+      onPressed: () => ref
+          .read(sentenceTTSProvider.notifier)
+          .speakSentence(widget.text, widget.sentenceId),
+      tooltip: 'Play TTS',
     );
-  }
-
-  String _getTooltip(SentenceTTSStatus status) {
-    switch (status) {
-      case SentenceTTSStatus.playing:
-        return 'Stop TTS';
-      case SentenceTTSStatus.error:
-        return 'Retry TTS';
-      case SentenceTTSStatus.loading:
-        return 'Loading TTS';
-      case SentenceTTSStatus.idle:
-        return 'Play TTS';
-    }
   }
 }

@@ -131,39 +131,9 @@ class _SentenceAITranslationWidgetState
       }
     });
 
-    IconData ttsIcon;
-    Color ttsColor;
-    VoidCallback? ttsOnPressed;
-
-    switch (ttsState.status) {
-      case SentenceTTSStatus.playing:
-        ttsIcon = Icons.stop;
-        ttsColor = errorColor;
-        ttsOnPressed = () => ref.read(sentenceTTSProvider.notifier).stop();
-        break;
-      case SentenceTTSStatus.error:
-        ttsIcon = Icons.refresh;
-        ttsColor = errorColor;
-        ttsOnPressed = () {
-          ref.read(sentenceTTSProvider.notifier).clearError();
-          ref
-              .read(sentenceTTSProvider.notifier)
-              .speakSentence(widget.sentence, widget.sentenceId ?? 0);
-        };
-        break;
-      case SentenceTTSStatus.loading:
-        ttsIcon = Icons.hourglass_empty;
-        ttsColor = context.appColorScheme.material3.primary;
-        ttsOnPressed = null;
-        break;
-      case SentenceTTSStatus.idle:
-        ttsIcon = Icons.volume_up;
-        ttsColor = context.appColorScheme.material3.primary;
-        ttsOnPressed = () => ref
-            .read(sentenceTTSProvider.notifier)
-            .speakSentence(widget.sentence, widget.sentenceId ?? 0);
-        break;
-    }
+    final isCurrentSentence = ttsState.currentText == widget.sentence;
+    final isActive = isCurrentSentence &&
+        (ttsState.isPlaying || ttsState.isPaused || ttsState.isLoading);
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -172,12 +142,63 @@ class _SentenceAITranslationWidgetState
           'AI Translation',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
-        IconButton(
-          icon: Icon(ttsIcon),
-          color: ttsColor,
-          onPressed: ttsOnPressed,
-          tooltip: _getTTSTooltip(ttsState.status),
-        ),
+        if (isActive)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (ttsState.isLoading)
+                IconButton(
+                  icon: const Icon(Icons.hourglass_empty),
+                  color: context.appColorScheme.material3.primary,
+                  onPressed: null,
+                  tooltip: 'Loading TTS',
+                )
+              else if (ttsState.isPlaying)
+                IconButton(
+                  icon: const Icon(Icons.pause),
+                  color: context.appColorScheme.material3.primary,
+                  onPressed: () =>
+                      ref.read(sentenceTTSProvider.notifier).pause(),
+                  tooltip: 'Pause TTS',
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.play_arrow),
+                  color: context.appColorScheme.material3.primary,
+                  onPressed: () =>
+                      ref.read(sentenceTTSProvider.notifier).resume(),
+                  tooltip: 'Resume TTS',
+                ),
+              IconButton(
+                icon: const Icon(Icons.stop),
+                color: errorColor,
+                onPressed: () =>
+                    ref.read(sentenceTTSProvider.notifier).stop(),
+                tooltip: 'Stop TTS',
+              ),
+            ],
+          )
+        else if (ttsState.hasError && isCurrentSentence)
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            color: errorColor,
+            onPressed: () {
+              ref.read(sentenceTTSProvider.notifier).clearError();
+              ref
+                  .read(sentenceTTSProvider.notifier)
+                  .speakSentence(widget.sentence, widget.sentenceId ?? 0);
+            },
+            tooltip: 'Retry TTS',
+          )
+        else
+          IconButton(
+            icon: const Icon(Icons.volume_up),
+            color: context.appColorScheme.material3.primary,
+            onPressed: () => ref
+                .read(sentenceTTSProvider.notifier)
+                .speakSentence(widget.sentence, widget.sentenceId ?? 0),
+            tooltip: 'Play TTS',
+          ),
       ],
     );
   }
@@ -284,18 +305,5 @@ class _SentenceAITranslationWidgetState
         label: const Text('Close'),
       ),
     );
-  }
-
-  String _getTTSTooltip(SentenceTTSStatus status) {
-    switch (status) {
-      case SentenceTTSStatus.playing:
-        return 'Stop';
-      case SentenceTTSStatus.error:
-        return 'Retry';
-      case SentenceTTSStatus.loading:
-        return 'Loading';
-      case SentenceTTSStatus.idle:
-        return 'Play';
-    }
   }
 }
