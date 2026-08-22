@@ -1,14 +1,17 @@
 import java.util.Properties
 import java.io.FileInputStream
+import com.android.build.api.dsl.ApplicationExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
-    id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-buildscript {
-    extra["kotlinVersion"] = "2.2.0"
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+    }
 }
 
 val keystoreProperties = Properties()
@@ -23,12 +26,19 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+    sourceSets {
+        getByName("main") {
+            java.srcDirs("src/main/kotlin", "src/main/java")
+        }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     signingConfigs {
@@ -51,6 +61,9 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            isShrinkResources = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }
@@ -62,4 +75,38 @@ dependencies {
 
 flutter {
     source = "../.."
+}
+
+afterEvaluate {
+    tasks.matching { it.name.startsWith("compile") && it.name.endsWith("JavaWithJavac") }.configureEach {
+        val javaTask = this as JavaCompile
+        val variantName = javaTask.name.removePrefix("compile").removeSuffix("JavaWithJavac")
+        val varLower = variantName.lowercase()
+        val varCap = varLower.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+
+        rootProject.subprojects.filter { it.name != "app" }.forEach { sub ->
+            javaTask.dependsOn(sub.tasks.matching { 
+                it.name.contains("Kotlin") || it.name.startsWith("compile") || it.name.startsWith("bundle") || it.name.startsWith("sync") || it.name.startsWith("assemble")
+            })
+        }
+
+        javaTask.doFirst {
+            val subDirs = rootProject.subprojects.filter { it.name != "app" }.flatMap { sub ->
+                val bDir = sub.layout.buildDirectory.asFile.get()
+                listOf(
+                    File(bDir, "tmp/kotlin-classes/$varLower"),
+                    File(bDir, "tmp/kotlin-classes/debug"),
+                    File(bDir, "tmp/kotlin-classes/release"),
+                    File(bDir, "intermediates/kotlin-classes/$varLower"),
+                    File(bDir, "intermediates/kotlin-classes/debug"),
+                    File(bDir, "intermediates/kotlin-classes/release"),
+                    File(bDir, "intermediates/compile_library_classes_jar/$varLower/bundleLibCompileToJar$varCap/classes.jar"),
+                    File(bDir, "intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar"),
+                    File(bDir, "intermediates/compile_library_classes_jar/release/bundleLibCompileToJarRelease/classes.jar")
+                )
+            }.filter { it.exists() }
+
+            javaTask.classpath = javaTask.classpath + files(subDirs)
+        }
+    }
 }
