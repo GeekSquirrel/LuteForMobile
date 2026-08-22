@@ -30,8 +30,11 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
+**/build/
 /coverage/
+android/app/src/main/java/
+devtools_options.yaml
+screenshot.png
 
 # Symbolication related
 app.*.symbols
