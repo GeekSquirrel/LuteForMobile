@@ -50,7 +50,7 @@ void main() {
   });
 
   group('CustomAppWidgetConfig', () {
-    test('resolveText properly substitutes [Text] and [LUTE] placeholders', () {
+    test('resolveText properly substitutes [Text] placeholder', () {
       const widgetWithTextPlaceholder = CustomAppWidgetConfig(
         id: 'w1',
         name: 'Translate',
@@ -61,19 +61,6 @@ void main() {
 
       expect(
         widgetWithTextPlaceholder.resolveText('hello'),
-        equals('翻译 hello'),
-      );
-
-      const widgetWithLegacyPlaceholder = CustomAppWidgetConfig(
-        id: 'w1_legacy',
-        name: 'Translate Legacy',
-        template: '翻译 [LUTE]',
-        targetAppId: 'com.test.app/main',
-        targetAppLabel: 'Test App',
-      );
-
-      expect(
-        widgetWithLegacyPlaceholder.resolveText('hello'),
         equals('翻译 hello'),
       );
 
@@ -166,7 +153,7 @@ void main() {
       const customWidget = CustomAppWidgetConfig(
         id: 'custom_1',
         name: '翻译为中文',
-        template: '翻译 [LUTE]',
+        template: '翻译 [Text]',
         targetAppId: 'com.eudic.eudic/main',
         targetAppLabel: '欧路词典',
       );

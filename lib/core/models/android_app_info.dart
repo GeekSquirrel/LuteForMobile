@@ -111,14 +111,11 @@ class CustomAppWidgetConfig {
     this.colorValue,
   });
 
-  /// Replaces the placeholder [Text] (or legacy [LUTE]) with the given text.
-  /// If the template does not contain [Text] or [LUTE], appends the text after template.
+  /// Replaces the placeholder [Text] with the given text.
+  /// If the template does not contain [Text], appends the text after template.
   String resolveText(String rawText) {
     if (template.contains('[Text]')) {
       return template.replaceAll('[Text]', rawText);
-    }
-    if (template.contains('[LUTE]')) {
-      return template.replaceAll('[LUTE]', rawText);
     }
     if (template.trim().isEmpty) {
       return rawText;

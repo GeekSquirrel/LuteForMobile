@@ -1417,15 +1417,6 @@ class _AndroidAppLauncherViewState
                 ),
                 const Divider(),
                 ListTile(
-                  leading: const Icon(Icons.play_arrow),
-                  title: const Text('Execute Custom Widget'),
-                  subtitle: Text('Sends: "${customWidget.resolveText(widget.text)}"'),
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _launchCustomWidget(customWidget, allApps);
-                  },
-                ),
-                ListTile(
                   leading: const Icon(Icons.edit_outlined),
                   title: const Text('Edit Custom Widget'),
                   onTap: () {
@@ -1557,36 +1548,35 @@ class _AndroidAppLauncherViewState
                 allApps.first
             : allApps.first);
 
+    bool isPreviewExpanded = false;
+
     showDialog(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final hasPlaceholder = templateController.text.contains('[Text]') ||
-                templateController.text.contains('[LUTE]');
+            final hasPlaceholder =
+                templateController.text.contains('[Text]');
             final previewText = hasPlaceholder
-                ? templateController.text
-                    .replaceAll(
-                      '[Text]',
-                      widget.text.isNotEmpty ? widget.text : '示例内容',
-                    )
-                    .replaceAll(
-                      '[LUTE]',
-                      widget.text.isNotEmpty ? widget.text : '示例内容',
-                    )
+                ? templateController.text.replaceAll(
+                    '[Text]',
+                    widget.text.isNotEmpty ? widget.text : '示例内容',
+                  )
                 : (templateController.text.trim().isEmpty
                     ? (widget.text.isNotEmpty ? widget.text : '示例内容')
                     : '${templateController.text} ${widget.text.isNotEmpty ? widget.text : "示例内容"}');
 
             return AlertDialog(
               title: Text(isEditing ? 'Edit Custom Widget' : 'Add Custom Widget'),
-              content: SingleChildScrollView(
-                child: SizedBox(
-                  width: 380,
+              content: SizedBox(
+                width: 380,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(top: 8, bottom: 8),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const SizedBox(height: 4),
                       TextField(
                         controller: nameController,
                         decoration: const InputDecoration(
@@ -1602,112 +1592,125 @@ class _AndroidAppLauncherViewState
                         onChanged: (_) => setDialogState(() {}),
                         decoration: InputDecoration(
                           labelText: 'Template (模板内容) *',
-                          hintText: 'e.g. 翻译 [Text]',
+                          hintText: 'e.g. 翻译 [Text], Define: [Text], 语法分析：[Text]',
                           helperText: '[Text] is the placeholder for selected text',
                           border: const OutlineInputBorder(),
                           isDense: true,
                           suffixIcon: IconButton(
-                            icon: const Icon(Icons.add),
-                            tooltip: 'Insert [Text]',
+                            icon: const Icon(Icons.help_outline_rounded),
+                            tooltip: 'Template Tutorial (模板教程)',
                             onPressed: () {
-                              final text = templateController.text;
-                              final selection = templateController.selection;
-                              if (selection.isValid &&
-                                  selection.start >= 0 &&
-                                  selection.end >= 0) {
-                                final newText = text.replaceRange(
-                                  selection.start,
-                                  selection.end,
-                                  '[Text]',
-                                );
-                                templateController.value = TextEditingValue(
-                                  text: newText,
-                                  selection: TextSelection.collapsed(
-                                    offset: selection.start + 6,
-                                  ),
-                                );
-                              } else {
-                                templateController.text = '$text [Text]'.trim();
-                              }
-                              setDialogState(() {});
+                              _showTemplateTutorialDialog(
+                                context,
+                                onSelectTemplate: (template) {
+                                  templateController.text = template;
+                                  setDialogState(() {});
+                                },
+                              );
                             },
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      // Preset template chips
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: [
-                          _buildPresetChip(
-                            label: '翻译 [Text]',
-                            onTap: () {
-                              templateController.text = '翻译 [Text]';
-                              setDialogState(() {});
-                            },
-                          ),
-                          _buildPresetChip(
-                            label: 'Define: [Text]',
-                            onTap: () {
-                              templateController.text = 'Define: [Text]';
-                              setDialogState(() {});
-                            },
-                          ),
-                          _buildPresetChip(
-                            label: '解释词汇：[Text]',
-                            onTap: () {
-                              templateController.text = '解释词汇：[Text]';
-                              setDialogState(() {});
-                            },
-                          ),
-                          _buildPresetChip(
-                            label: '[Text]',
-                            onTap: () {
-                              templateController.text = '[Text]';
-                              setDialogState(() {});
-                            },
-                          ),
-                        ],
                       ),
                       const SizedBox(height: 14),
                       // Live Preview box
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: context.m3Primary.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: context.m3Primary.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(Icons.preview, size: 14, color: context.m3Primary),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Live Output Preview:',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: context.m3Primary,
-                                  ),
-                                ),
-                              ],
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final textStyle = Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              );
+                          final span = TextSpan(
+                            text: previewText,
+                            style: textStyle,
+                          );
+                          final tp = TextPainter(
+                            text: span,
+                            textDirection: Directionality.of(context),
+                            maxLines: 3,
+                          );
+                          tp.layout(
+                            maxWidth: (constraints.maxWidth - 20)
+                                .clamp(10.0, double.infinity),
+                          );
+                          final isOverflowing = tp.didExceedMaxLines;
+                          final showArrow = isOverflowing || isPreviewExpanded;
+
+                          return Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: context.m3Primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: context.m3Primary.withValues(alpha: 0.3),
+                              ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              previewText,
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    fontWeight: FontWeight.w600,
+                            child: AnimatedSize(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut,
+                              alignment: Alignment.topCenter,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.preview,
+                                        size: 14,
+                                        color: context.m3Primary,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Live Output Preview:',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: context.m3Primary,
+                                        ),
+                                      ),
+                                    ],
                                   ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    previewText,
+                                    maxLines: isPreviewExpanded ? null : 3,
+                                    overflow: isPreviewExpanded
+                                        ? TextOverflow.visible
+                                        : TextOverflow.ellipsis,
+                                    style: textStyle,
+                                  ),
+                                  if (showArrow) ...[
+                                    const SizedBox(height: 4),
+                                    InkWell(
+                                      onTap: () {
+                                        setDialogState(() {
+                                          isPreviewExpanded = !isPreviewExpanded;
+                                        });
+                                      },
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: SizedBox(
+                                        width: double.infinity,
+                                        height: 20,
+                                        child: Center(
+                                          child: Icon(
+                                            isPreviewExpanded
+                                                ? Icons.keyboard_arrow_up_rounded
+                                                : Icons.keyboard_arrow_down_rounded,
+                                            size: 20,
+                                            color: context.m3Primary,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -1814,15 +1817,190 @@ class _AndroidAppLauncherViewState
     );
   }
 
-  Widget _buildPresetChip({
-    required String label,
-    required VoidCallback onTap,
+  void _showTemplateTutorialDialog(
+    BuildContext context, {
+    void Function(String template)? onSelectTemplate,
   }) {
-    return ActionChip(
-      label: Text(label, style: const TextStyle(fontSize: 11)),
-      padding: EdgeInsets.zero,
-      visualDensity: VisualDensity.compact,
-      onPressed: onTap,
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.help_outline_rounded,
+                color: context.m3Primary,
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+              const Text('模板使用教程'),
+            ],
+          ),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '什么是自定义模板？',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '自定义组件允许你将文章中选中的词汇或句子组装为特定格式，并一键传递给已安装的目标第三方应用（如翻译器、AI 助手或词典）。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '占位符语法：',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: context.m3Primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: context.m3Primary.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '• [Text]',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: context.m3Primary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '表示选中的文本占位符。执行时系统会自动将其替换为你实际点击或选中的词句。若未填写占位符，选中文本将自动追加在模板末尾。',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    '常用模板示例（点击可直接套用）：',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildTutorialExampleTile(
+                    dialogContext,
+                    title: '基础翻译',
+                    template: '翻译 [Text]',
+                    description: '发送指令给 AI / 翻译应用进行翻译',
+                    onSelectTemplate: onSelectTemplate,
+                  ),
+                  _buildTutorialExampleTile(
+                    dialogContext,
+                    title: '词汇释义',
+                    template: 'Define: [Text]',
+                    description: '查询词汇英文定义与例句',
+                    onSelectTemplate: onSelectTemplate,
+                  ),
+                  _buildTutorialExampleTile(
+                    dialogContext,
+                    title: 'AI 深度语法解析',
+                    template: '请对以下句子进行语法结构分析并翻译：[Text]',
+                    description: '适合句子阅读时调用大语言模型解析长难句',
+                    onSelectTemplate: onSelectTemplate,
+                  ),
+                  _buildTutorialExampleTile(
+                    dialogContext,
+                    title: '原样发送',
+                    template: '[Text]',
+                    description: '不加任何前后缀，直接传递选中的原文本',
+                    onSelectTemplate: onSelectTemplate,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('我知道了'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildTutorialExampleTile(
+    BuildContext context, {
+    required String title,
+    required String template,
+    required String description,
+    void Function(String template)? onSelectTemplate,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: context.appColorScheme.background.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: context.appColorScheme.border.dividerColor
+              .withValues(alpha: 0.5),
+        ),
+      ),
+      child: ListTile(
+        dense: true,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        title: Row(
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                template,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  color: context.m3Primary,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        subtitle: Text(
+          description,
+          style: const TextStyle(fontSize: 11),
+        ),
+        trailing: onSelectTemplate != null
+            ? const Icon(Icons.touch_app_outlined, size: 16)
+            : null,
+        onTap: onSelectTemplate != null
+            ? () {
+                onSelectTemplate(template);
+                Navigator.pop(context);
+              }
+            : null,
+      ),
     );
   }
 
